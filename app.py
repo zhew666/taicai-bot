@@ -24,21 +24,19 @@ from groq import Groq
 app = Flask(__name__)
 
 # ==========================================
-# 設定區 (已填入你的 Key)
+# 設定區 (讀環境變數，安全，不寫死)
 # ==========================================
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 
-# 初始化 LINE Configuration
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 初始化 Groq Client
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # ==========================================
-# 核心計算邏輯
+# 核心計算邏輯 (已避免00)
 # ==========================================
 
 def sum_digits(n, keep_master=True):
@@ -94,7 +92,7 @@ def calculate_luck_numbers(birth_str):
     formatted_two_digits = []
     for n in nums:
         if n == 0:
-            n = 1  # 避免 00，改成 01
+            n = 1  # 避免00，改成01
         formatted_two_digits.append(f"{n:02d}")
 
     single_digit = pd_single
@@ -107,30 +105,26 @@ def calculate_luck_numbers(birth_str):
     }
 
 def get_ai_explanation(data):
-    prompt = f"""你是一位數理顧問，用生命靈數分析數字。回應用繁體中文，總長60-90字，嚴格固定結構：
+    client = Groq(api_key=GROQ_API_KEY)
+    
+    prompt = f"""你是一位數理顧問，用生命靈數分析數字。回應用繁體中文，只輸出以下固定格式，不加任何其他文字或解釋：
+你的生命靈數是 {data['lp']} 代表 [最多3個形容詞，與個性、人格、人格魅力相關，例如領導魅力、獨立個性、吸引力]
+你的今日幸運數字是 {data['two_digits'][0]} 代表 [一個形容詞，與財富、運氣、機運相關，例如財運、好運、機遇]
+你的今日幸運數字是 {data['two_digits'][1]} 代表 [一個形容詞，與財富、運氣、機運相關，例如財運、好運、機遇]
+你的今日幸運數字是 {data['two_digits'][2]} 代表 [一個形容詞，與財富、運氣、機運相關，例如財運、好運、機遇]
 
-1. "你的生命靈數是 {data['lp']}，代表 [單詞或短語特質，例如創意、內省]。"
-2. "今日個人日數是 {data['pd']}，影響 [單詞或短語能量，例如和諧、行動]。"
-3. "推薦今日幸運尾號：兩碼 {', '.join(data['two_digits'])}，單碼 {data['single_digit']}。"
-4. "這些尾號對應今日能量強度最高的三組組合。"
-
-嚴格禁止：額外說明、負面、保證中獎、免責、過長、超出結構。"""
-
+嚴格禁止：任何額外文字、單碼顯示、數字編號、負面、保證中獎、免責、過長、超出格式、形容詞超過指定數量。使用中性、多樣詞彙，避免重複。"""
+    
     try:
-        completion = groq_client.chat.completions.create(
+        completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=150
+            temperature=0.9,
+            max_tokens=100
         )
         return completion.choices[0].message.content.strip()
     except Exception as e:
-        print(f"Groq API Error: {e}")
-        return None
-
-# ==========================================
-# Flask 路由與 LINE Webhook 處理
-# ==========================================
+        return f"AI 生成失敗: {str(e)}"
 
 @app.route("/webhook", methods=['POST'])
 def callback():
