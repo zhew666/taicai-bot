@@ -1,9 +1,10 @@
 import os
-import datetime
-import traceback
+import re
+import json
+from datetime import datetime
 from flask import Flask, request, abort
 
-# LINE Bot SDK v3
+# LINE SDK v3 模組
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -11,162 +12,300 @@ from linebot.v3.messaging import (
     ApiClient,
     MessagingApi,
     ReplyMessageRequest,
-    TextMessage
+    FlexMessage,
+    FlexContainer
 )
-from linebot.v3.webhooks import (
-    MessageEvent,
-    TextMessageContent
-)
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
-# Groq
+# Groq 模組
 from groq import Groq
 
 app = Flask(__name__)
 
-# ==========================================
-# 設定區 (讀環境變數，安全，不寫死)
-# ==========================================
-LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
-LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
+# --- 設定區 (環境變數) ---
+CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
+CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 
-configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
+configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(CHANNEL_SECRET)
+client = Groq(api_key=GROQ_API_KEY)
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+# --- 1. 核心計算邏輯 ---
 
-# ==========================================
-# 核心計算邏輯 (已避免00)
-# ==========================================
-
-def sum_digits(n, keep_master=True):
-    while n > 9:
-        if keep_master and n in [11, 22, 33]:
-            return n
-        n = sum(int(digit) for digit in str(n))
+def calculate_single_digit(n):
+    """將數字加總至個位數 (保留 11, 22, 33)"""
+    while n > 9 and n not in [11, 22, 33]:
+        n = sum(int(d) for d in str(n))
     return n
 
-def get_single_digit(n):
-    while n > 9:
-        n = sum(int(digit) for digit in str(n))
-    return n
+def calculate_lp(year, month, day):
+    """計算生命靈數"""
+    total = sum(int(d) for d in str(year)) + sum(int(d) for d in str(month)) + sum(int(d) for d in str(day))
+    return calculate_single_digit(total)
 
-def calculate_luck_numbers(birth_str):
-    try:
-        birth_date = datetime.datetime.strptime(birth_str, "%Y-%m-%d")
-        current_year = datetime.datetime.now().year
-        if not (1900 <= birth_date.year <= current_year):
-            return "請輸入正確年份範圍：1900~現在"
-    except ValueError:
-        return "請輸入正確格式：YYYY-MM-DD"
+def calculate_pd(month, day):
+    """計算個人日數"""
+    now = datetime.now()
+    total = sum(int(d) for d in str(month)) + sum(int(d) for d in str(day)) + \
+            sum(int(d) for d in str(now.year)) + sum(int(d) for d in str(now.month)) + sum(int(d) for d in str(now.day))
+    return calculate_single_digit(total)
 
-    tz_offset = datetime.timedelta(hours=8)
-    today = datetime.datetime.now(datetime.timezone.utc) + tz_offset
-
-    lp_raw = sum(int(d) for d in birth_str if d.isdigit())
-    lp = sum_digits(lp_raw, keep_master=True)
-    lp_single = get_single_digit(lp)
-
-    pd_string = f"{birth_date.month}{birth_date.day}{today.year}{today.month}{today.day}"
-    pd_raw = sum(int(d) for d in pd_string if d.isdigit())
-    pd = sum_digits(pd_raw, keep_master=True)
-    pd_single = get_single_digit(pd)
-
-    seed = (lp_single * pd_single * (birth_date.day + today.day)) % 100
-
-    nums = []
-    nums.append(seed % 50)
-    nums.append((seed + 10 + lp_single) % 50)
-    nums.append((seed + 20 + pd_single) % 50)
-
-    for _ in range(3):
-        changed = False
-        for i in range(len(nums)):
-            for j in range(i + 1, len(nums)):
-                if abs(nums[i] - nums[j]) < 10:
-                    nums[j] = (nums[j] + 10) % 50
-                    changed = True
-        if not changed:
-            break
+def get_lucky_numbers(lp, pd, day):
+    """生成3組雙碼"""
+    now = datetime.now()
+    lp_single = lp if lp < 10 else sum(int(d) for d in str(lp))
+    pd_single = pd if pd < 10 else sum(int(d) for d in str(pd))
     
-    formatted_two_digits = []
-    for n in nums:
-        if n == 0:
-            n = 1  # 避免00，改成01
-        formatted_two_digits.append(f"{n:02d}")
-
-    single_digit = pd_single
+    seed = (lp_single * pd_single * (day + now.day)) % 100
     
-    return {
-        "lp": lp,
-        "pd": pd,
-        "two_digits": formatted_two_digits,
-        "single_digit": single_digit
-    }
-
-def get_ai_explanation(data):
-    client = Groq(api_key=GROQ_API_KEY)
+    # 生成邏輯
+    n1 = (seed % 50) 
+    n2 = (seed + 15) % 50
+    n3 = (seed + 33) % 50
     
-    prompt = f"""你是一位數理顧問，用生命靈數分析數字。回應用繁體中文，只輸出以下固定格式，不加任何其他文字或解釋：
-你的生命靈數是 {data['lp']} 代表 [最多3個形容詞，與個性、人格、人格魅力相關，例如領導魅力、獨立個性、吸引力]
-你的今日幸運數字是 {data['two_digits'][0]} 代表 [一個形容詞，與財富、運氣、機運相關，例如財運、好運、機遇]
-你的今日幸運數字是 {data['two_digits'][1]} 代表 [一個形容詞，與財富、運氣、機運相關，例如財運、好運、機遇]
-你的今日幸運數字是 {data['two_digits'][2]} 代表 [一個形容詞，與財富、運氣、機運相關，例如財運、好運、機遇]
-
-嚴格禁止：任何額外文字、單碼顯示、數字編號、負面、保證中獎、免責、過長、超出格式、形容詞超過指定數量。使用中性、多樣詞彙，避免重複。"""
+    raw_list = [n1, n2, n3]
+    final_list = []
     
+    for num in raw_list:
+        if num == 0: num = 1 # 避免00
+        final_list.append(f"{num:02d}")
+        
+    return final_list
+
+# --- 2. AI 生成與 Flex Message 設計 ---
+
+def generate_short_analysis(lp, lucky_numbers):
+    """
+    修改後的 Prompt：
+    因為卡片上已經有數字了，AI 只需要給出簡短有力的「運勢點評」即可。
+    """
+    nums_str = ", ".join(lucky_numbers)
+    
+    system_prompt = f"""
+    你是一位精簡的運勢分析師。
+    使用者資料：生命靈數 {lp}，今日幸運尾號 {nums_str}。
+    
+    請給出一段約 40-50 字的短評。
+    重點放在：今日的能量關鍵字、財運指引。
+    風格：正向、神秘、果斷。
+    
+    嚴格禁止：
+    1. 不要重複列出數字（因為卡片上已經有了）。
+    2. 不要自我介紹。
+    3. 不要任何格式符號（如 markdown）。
+    """
+
     try:
         completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "請給出今日指引"}
+            ],
             model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.9,
-            max_tokens=100
+            temperature=0.8,
+            max_tokens=100,
         )
         return completion.choices[0].message.content.strip()
-    except Exception as e:
-        return f"AI 生成失敗: {str(e)}"
+    except Exception:
+        return "今日能量流動順暢，直覺將是你最好的指引。財運潛藏在日常細節中。"
+
+def create_flex_bubble(lp, lucky_numbers, ai_text):
+    """
+    製作 LINE Flex Message (卡片) 的 JSON 結構
+    """
+    # 幸運數字球的顏色設定 (紅球白字)
+    ball_color = "#FF4B4B" 
+    
+    bubble_json = {
+        "type": "bubble",
+        "size": "giga",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🔮 今日幸運靈數",
+                    "weight": "bold",
+                    "color": "#FFFFFF",
+                    "size": "lg"
+                }
+            ],
+            "backgroundColor": "#FFD700",  # 金色背景
+            "paddingAll": "20px"
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                # 生命靈數區塊
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": "生命靈數", "size": "sm", "color": "#aaaaaa", "flex": 1},
+                        {"type": "text", "text": str(lp), "size": "xl", "weight": "bold", "align": "end", "color": "#333333", "flex": 1}
+                    ],
+                    "margin": "md"
+                },
+                {"type": "separator", "margin": "lg"},
+                
+                # 幸運尾號標題
+                {
+                    "type": "text",
+                    "text": "✨ 推薦尾號",
+                    "weight": "bold",
+                    "size": "md",
+                    "margin": "lg",
+                    "color": "#333333"
+                },
+                
+                # 幸運尾號球體 (三個圓球)
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "margin": "md",
+                    "contents": [
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [{"type": "text", "text": lucky_numbers[0], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center"}],
+                            "backgroundColor": ball_color,
+                            "cornerRadius": "50px",
+                            "width": "60px",
+                            "height": "60px",
+                            "justifyContent": "center",
+                            "alignItems": "center"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [{"type": "text", "text": lucky_numbers[1], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center"}],
+                            "backgroundColor": ball_color,
+                            "cornerRadius": "50px",
+                            "width": "60px",
+                            "height": "60px",
+                            "justifyContent": "center",
+                            "alignItems": "center",
+                            "offsetStart": "10px"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [{"type": "text", "text": lucky_numbers[2], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center"}],
+                            "backgroundColor": ball_color,
+                            "cornerRadius": "50px",
+                            "width": "60px",
+                            "height": "60px",
+                            "justifyContent": "center",
+                            "alignItems": "center",
+                            "offsetStart": "20px"
+                        }
+                    ],
+                    "justifyContent": "center" 
+                },
+                
+                # AI 分析文字區
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "xl",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": ai_text,
+                            "wrap": True,
+                            "size": "sm",
+                            "color": "#666666",
+                            "lineSpacing": "4px"
+                        }
+                    ],
+                    "backgroundColor": "#f7f7f7",
+                    "cornerRadius": "10px",
+                    "paddingAll": "10px"
+                }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "僅供娛樂參考，不保證中獎",
+                    "size": "xxs",
+                    "color": "#bbbbbb",
+                    "align": "center"
+                }
+            ]
+        }
+    }
+    return FlexMessage(alt_text="您的今日幸運靈數報告", contents=FlexContainer.from_json(json.dumps(bubble_json)))
+
+# --- 3. Webhook 處理 ---
 
 @app.route("/webhook", methods=['POST'])
 def callback():
-    signature = request.headers.get('X-Line-Signature')
+    signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-    app.logger.info("Request body: " + body)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
-        app.logger.info("Invalid signature. Please check your channel access token/channel secret.")
         abort(400)
-
     return 'OK'
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    user_msg = event.message.text.strip()
+    user_text = event.message.text.strip()
     
-    calc_result = calculate_luck_numbers(user_msg)
+    # 驗證生日格式
+    match = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$', user_text)
     
-    reply_text = ""
-
-    if isinstance(calc_result, str):
-        reply_text = calc_result
+    if match:
+        try:
+            year = int(match.group(1))
+            month = int(match.group(2))
+            day = int(match.group(3))
+            
+            # 1. 計算
+            lp = calculate_lp(year, month, day)
+            pd = calculate_pd(month, day)
+            lucky_numbers = get_lucky_numbers(lp, pd, day)
+            
+            # 2. AI 生成文字
+            ai_text = generate_short_analysis(lp, lucky_numbers)
+            
+            # 3. 製作 Flex Message
+            flex_message = create_flex_bubble(lp, lucky_numbers, ai_text)
+            
+            # 4. 回覆
+            with ApiClient(configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                line_bot_api.reply_message_with_http_info(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[flex_message]
+                    )
+                )
+        except ValueError:
+             with ApiClient(configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                line_bot_api.reply_message_with_http_info(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="日期無效，請檢查月份或日期。")]
+                    )
+                )
     else:
-        ai_response = get_ai_explanation(calc_result)
-        
-        if ai_response:
-            reply_text = ai_response
-        else:
-            reply_text = "系統忙碌，請稍後再試 (AI Error)"
-
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        line_bot_api.reply_message_with_http_info(
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=reply_text)]
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message_with_http_info(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text="請輸入生日格式：YYYY-MM-DD\n例如：1990-05-20")]
+                )
             )
-        )
 
 if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run()
