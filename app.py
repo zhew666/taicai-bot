@@ -76,24 +76,20 @@ def get_lucky_numbers(lp, pd, day):
 # --- 2. AI 生成與 Flex Message 設計 ---
 
 def generate_short_analysis(lp, lucky_numbers):
-    """
-    修改後的 Prompt：
-    因為卡片上已經有數字了，AI 只需要給出簡短有力的「運勢點評」即可。
-    """
     nums_str = ", ".join(lucky_numbers)
     
     system_prompt = f"""
     你是一位精簡的運勢分析師。
     使用者資料：生命靈數 {lp}，今日幸運尾號 {nums_str}。
     
-    請給出一段約 40-50 字的短評。
+    請給出一段約 50 字左右的短評。
     重點放在：今日的能量關鍵字、財運指引。
-    風格：正向、神秘、果斷。
+    風格：正向、神秘、果斷，務必給出完整的句子。
     
     嚴格禁止：
-    1. 不要重複列出數字（因為卡片上已經有了）。
+    1. 不要重複列出數字。
     2. 不要自我介紹。
-    3. 不要任何格式符號（如 markdown）。
+    3. 不要任何格式符號。
     """
 
     try:
@@ -103,19 +99,22 @@ def generate_short_analysis(lp, lucky_numbers):
                 {"role": "user", "content": "請給出今日指引"}
             ],
             model="llama-3.1-8b-instant",
-            temperature=0.8,
-            max_tokens=100,
+            temperature=0.7,
+            # 【修改點】提高 token 限制，防止文字被截斷
+            max_tokens=300,
         )
         return completion.choices[0].message.content.strip()
     except Exception:
-        return "今日能量流動順暢，直覺將是你最好的指引。財運潛藏在日常細節中。"
+        return "今日能量流動順暢，直覺將是你最好的指引。財運潛藏在日常細節中，保持專注即可看見機會。"
 
 def create_flex_bubble(lp, lucky_numbers, ai_text):
     """
     製作 LINE Flex Message (卡片) 的 JSON 結構
     """
-    # 幸運數字球的顏色設定 (紅球白字)
-    ball_color = "#FF4B4B" 
+    # 顏色設定
+    red_ball_color = "#FF4B4B"
+    # 【修改點】新增綠色球顏色
+    green_ball_color = "#28a745" 
     
     bubble_json = {
         "type": "bubble",
@@ -132,20 +131,33 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
                     "size": "lg"
                 }
             ],
-            "backgroundColor": "#FFD700",  # 金色背景
+            "backgroundColor": "#FFD700",
             "paddingAll": "20px"
         },
         "body": {
             "type": "box",
             "layout": "vertical",
             "contents": [
-                # 生命靈數區塊
+                # --- 生命靈數區塊 (修改為綠色圓球) ---
                 {
                     "type": "box",
                     "layout": "horizontal",
+                    "alignItems": "center", # 垂直置中對齊
                     "contents": [
-                        {"type": "text", "text": "生命靈數", "size": "sm", "color": "#aaaaaa", "flex": 1},
-                        {"type": "text", "text": str(lp), "size": "xl", "weight": "bold", "align": "end", "color": "#333333", "flex": 1}
+                        {"type": "text", "text": "生命靈數", "size": "md", "color": "#aaaaaa", "flex": 1},
+                        # 綠色數字球
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [{"type": "text", "text": str(lp), "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "xl"}],
+                            "backgroundColor": green_ball_color,
+                            "cornerRadius": "50px",
+                            "width": "70px",  # 稍微大一點點強調主靈數
+                            "height": "70px",
+                            "justifyContent": "center",
+                            "alignItems": "center",
+                            "flex": 0 # 不拉伸
+                        }
                     ],
                     "margin": "md"
                 },
@@ -161,7 +173,7 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
                     "color": "#333333"
                 },
                 
-                # 幸運尾號球體 (三個圓球)
+                # 幸運尾號球體 (紅色三個)
                 {
                     "type": "box",
                     "layout": "horizontal",
@@ -170,8 +182,8 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
                         {
                             "type": "box",
                             "layout": "vertical",
-                            "contents": [{"type": "text", "text": lucky_numbers[0], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center"}],
-                            "backgroundColor": ball_color,
+                            "contents": [{"type": "text", "text": lucky_numbers[0], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
+                            "backgroundColor": red_ball_color,
                             "cornerRadius": "50px",
                             "width": "60px",
                             "height": "60px",
@@ -181,8 +193,8 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
                         {
                             "type": "box",
                             "layout": "vertical",
-                            "contents": [{"type": "text", "text": lucky_numbers[1], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center"}],
-                            "backgroundColor": ball_color,
+                            "contents": [{"type": "text", "text": lucky_numbers[1], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
+                            "backgroundColor": red_ball_color,
                             "cornerRadius": "50px",
                             "width": "60px",
                             "height": "60px",
@@ -193,8 +205,8 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
                         {
                             "type": "box",
                             "layout": "vertical",
-                            "contents": [{"type": "text", "text": lucky_numbers[2], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center"}],
-                            "backgroundColor": ball_color,
+                            "contents": [{"type": "text", "text": lucky_numbers[2], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
+                            "backgroundColor": red_ball_color,
                             "cornerRadius": "50px",
                             "width": "60px",
                             "height": "60px",
@@ -215,15 +227,15 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
                         {
                             "type": "text",
                             "text": ai_text,
-                            "wrap": True,
+                            "wrap": True, # 確保自動換行
                             "size": "sm",
-                            "color": "#666666",
-                            "lineSpacing": "4px"
+                            "color": "#555555",
+                            "lineSpacing": "5px"
                         }
                     ],
-                    "backgroundColor": "#f7f7f7",
+                    "backgroundColor": "#f0f2f5", # 稍微改一下背景色增加對比
                     "cornerRadius": "10px",
-                    "paddingAll": "10px"
+                    "paddingAll": "12px"
                 }
             ]
         },
@@ -234,7 +246,7 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
                 {
                     "type": "text",
                     "text": "僅供娛樂參考，不保證中獎",
-                    "size": "xxs",
+                    "size": "xs",
                     "color": "#bbbbbb",
                     "align": "center"
                 }
