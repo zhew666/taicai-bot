@@ -38,11 +38,10 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 # ==========================================
-# 核心計算邏輯 (與測試版相同)
+# 核心計算邏輯
 # ==========================================
 
 def sum_digits(n, keep_master=True):
-    """將數字逐位加總直到變成個位數 (保留大師數)"""
     while n > 9:
         if keep_master and n in [11, 22, 33]:
             return n
@@ -50,17 +49,11 @@ def sum_digits(n, keep_master=True):
     return n
 
 def get_single_digit(n):
-    """強制縮減為單數字 (用於種子計算)"""
     while n > 9:
         n = sum(int(digit) for digit in str(n))
     return n
 
 def calculate_luck_numbers(birth_str):
-    """
-    輸入: "YYYY-MM-DD" 字串
-    輸出: 字典 (成功) 或 字串 (錯誤訊息)
-    """
-    # 1. 輸入驗證
     try:
         birth_date = datetime.datetime.strptime(birth_str, "%Y-%m-%d")
         current_year = datetime.datetime.now().year
@@ -69,31 +62,25 @@ def calculate_luck_numbers(birth_str):
     except ValueError:
         return "請輸入正確格式：YYYY-MM-DD"
 
-    # 取得今天日期 (設定為台灣時間 GMT+8，避免伺服器時區問題)
     tz_offset = datetime.timedelta(hours=8)
     today = datetime.datetime.now(datetime.timezone.utc) + tz_offset
 
-    # 2. 計算 LP
     lp_raw = sum(int(d) for d in birth_str if d.isdigit())
     lp = sum_digits(lp_raw, keep_master=True)
     lp_single = get_single_digit(lp)
 
-    # 3. 計算 PD
     pd_string = f"{birth_date.month}{birth_date.day}{today.year}{today.month}{today.day}"
     pd_raw = sum(int(d) for d in pd_string if d.isdigit())
     pd = sum_digits(pd_raw, keep_master=True)
     pd_single = get_single_digit(pd)
 
-    # 4. 計算種子
     seed = (lp_single * pd_single * (birth_date.day + today.day)) % 100
 
-    # 5. 計算兩碼 3 組
     nums = []
     nums.append(seed % 50)
     nums.append((seed + 10 + lp_single) % 50)
     nums.append((seed + 20 + pd_single) % 50)
 
-    # 碰撞檢查 (差 < 10 則 +10)
     for _ in range(3):
         changed = False
         for i in range(len(nums)):
@@ -104,17 +91,22 @@ def calculate_luck_numbers(birth_str):
         if not changed:
             break
     
-    formatted_two_digits = [f"{n:02d}" for n in nums]
+    formatted_two_digits = []
+    for n in nums:
+        if n == 0:
+            n = 1  # 避免 00，改成 01
+        formatted_two_digits.append(f"{n:02d}")
 
+    single_digit = pd_single
+    
     return {
         "lp": lp,
         "pd": pd,
         "two_digits": formatted_two_digits,
-        "single_digit": pd_single
+        "single_digit": single_digit
     }
 
 def get_ai_explanation(data):
-    """呼叫 Groq API 生成解釋"""
     prompt = f"""你是一位數理顧問，用生命靈數分析數字。回應用繁體中文，總長60-90字，嚴格固定結構：
 
 1. "你的生命靈數是 {data['lp']}，代表 [單詞或短語特質，例如創意、內省]。"
