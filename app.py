@@ -78,9 +78,15 @@ def get_lucky_numbers(lp, pd, day):
 def generate_short_analysis(lp, lucky_numbers):
     nums_str = ", ".join(lucky_numbers)
     
+    # 【新增】針對大師數的特殊提示
+    master_note = ""
+    if lp in [11, 22, 33]:
+        master_note = f"注意：使用者擁有稀有的「大師數 {lp}」。請特別強調其天賦異稟、直覺強與特殊的使命感。語氣要更具啟發性。"
+
     system_prompt = f"""
     你是一位精簡的運勢分析師。
     使用者資料：生命靈數 {lp}，今日幸運尾號 {nums_str}。
+    {master_note}
     
     請給出一段約 50 字左右的短評。
     重點放在：今日的能量關鍵字、財運指引。
@@ -100,7 +106,6 @@ def generate_short_analysis(lp, lucky_numbers):
             ],
             model="llama-3.1-8b-instant",
             temperature=0.7,
-            # 【修改點】提高 token 限制，防止文字被截斷
             max_tokens=300,
         )
         return completion.choices[0].message.content.strip()
@@ -111,11 +116,148 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
     """
     製作 LINE Flex Message (卡片) 的 JSON 結構
     """
-    # 顏色設定
+    # 預設顏色 (綠色)
+    lp_ball_color = "#28a745"
+    rarity_text_component = None # 預設沒有稀有度文字
+
+    # 【新增】大師數判斷邏輯
+    if lp == 11:
+        lp_ball_color = "#6610f2" # 神秘紫
+        rarity_text = "🌟 大師數 (稀有度約 6%)"
+        rarity_desc = "直覺與靈性的先驅"
+    elif lp == 22:
+        lp_ball_color = "#6610f2" # 神秘紫
+        rarity_text = "🌟 大師數 (稀有度約 2%)"
+        rarity_desc = "夢想的實踐大師"
+    elif lp == 33:
+        lp_ball_color = "#6610f2" # 神秘紫
+        rarity_text = "🌟 大師數 (稀有度 < 1%)"
+        rarity_desc = "無私的療癒導師"
+    else:
+        rarity_text = None
+
+    # 如果是大師數，建立一個顯示文字的組件
+    if rarity_text:
+        rarity_text_component = {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": rarity_text, "size": "xs", "color": "#6610f2", "weight": "bold", "align": "center"},
+                {"type": "text", "text": rarity_desc, "size": "xxs", "color": "#999999", "align": "center", "margin": "xs"}
+            ],
+            "margin": "md",
+            "backgroundColor": "#f3e5f5", # 淺紫色背景
+            "cornerRadius": "8px",
+            "paddingAll": "8px"
+        }
+
     red_ball_color = "#FF4B4B"
-    # 【修改點】新增綠色球顏色
-    green_ball_color = "#28a745" 
     
+    # 建立 Flex Message 主體
+    contents_body = [
+        # --- 生命靈數區塊 ---
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "alignItems": "center",
+            "contents": [
+                {"type": "text", "text": "生命靈數", "size": "md", "color": "#aaaaaa", "flex": 1},
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [{"type": "text", "text": str(lp), "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "xl"}],
+                    "backgroundColor": lp_ball_color, # 動態顏色
+                    "cornerRadius": "50px",
+                    "width": "70px",
+                    "height": "70px",
+                    "justifyContent": "center",
+                    "alignItems": "center",
+                    "flex": 0
+                }
+            ],
+            "margin": "md"
+        }
+    ]
+
+    # 如果是大師數，加入稀有度文字
+    if rarity_text_component:
+        contents_body.append(rarity_text_component)
+
+    # 繼續加入分隔線、標題、紅球
+    contents_body.extend([
+        {"type": "separator", "margin": "lg"},
+        {
+            "type": "text",
+            "text": "✨ 推薦尾號",
+            "weight": "bold",
+            "size": "md",
+            "margin": "lg",
+            "color": "#333333"
+        },
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "md",
+            "contents": [
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [{"type": "text", "text": lucky_numbers[0], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
+                    "backgroundColor": red_ball_color,
+                    "cornerRadius": "50px",
+                    "width": "60px",
+                    "height": "60px",
+                    "justifyContent": "center",
+                    "alignItems": "center"
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [{"type": "text", "text": lucky_numbers[1], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
+                    "backgroundColor": red_ball_color,
+                    "cornerRadius": "50px",
+                    "width": "60px",
+                    "height": "60px",
+                    "justifyContent": "center",
+                    "alignItems": "center",
+                    "offsetStart": "10px"
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [{"type": "text", "text": lucky_numbers[2], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
+                    "backgroundColor": red_ball_color,
+                    "cornerRadius": "50px",
+                    "width": "60px",
+                    "height": "60px",
+                    "justifyContent": "center",
+                    "alignItems": "center",
+                    "offsetStart": "20px"
+                }
+            ],
+            "justifyContent": "center" 
+        },
+        # AI 文字區
+        {
+            "type": "box",
+            "layout": "vertical",
+            "margin": "xl",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": ai_text,
+                    "wrap": True,
+                    "size": "sm",
+                    "color": "#555555",
+                    "lineSpacing": "5px"
+                }
+            ],
+            "backgroundColor": "#f0f2f5",
+            "cornerRadius": "10px",
+            "paddingAll": "12px"
+        }
+    ])
+
     bubble_json = {
         "type": "bubble",
         "size": "giga",
@@ -137,107 +279,7 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
         "body": {
             "type": "box",
             "layout": "vertical",
-            "contents": [
-                # --- 生命靈數區塊 (修改為綠色圓球) ---
-                {
-                    "type": "box",
-                    "layout": "horizontal",
-                    "alignItems": "center", # 垂直置中對齊
-                    "contents": [
-                        {"type": "text", "text": "生命靈數", "size": "md", "color": "#aaaaaa", "flex": 1},
-                        # 綠色數字球
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [{"type": "text", "text": str(lp), "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "xl"}],
-                            "backgroundColor": green_ball_color,
-                            "cornerRadius": "50px",
-                            "width": "70px",  # 稍微大一點點強調主靈數
-                            "height": "70px",
-                            "justifyContent": "center",
-                            "alignItems": "center",
-                            "flex": 0 # 不拉伸
-                        }
-                    ],
-                    "margin": "md"
-                },
-                {"type": "separator", "margin": "lg"},
-                
-                # 幸運尾號標題
-                {
-                    "type": "text",
-                    "text": "✨ 推薦尾號",
-                    "weight": "bold",
-                    "size": "md",
-                    "margin": "lg",
-                    "color": "#333333"
-                },
-                
-                # 幸運尾號球體 (紅色三個)
-                {
-                    "type": "box",
-                    "layout": "horizontal",
-                    "margin": "md",
-                    "contents": [
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [{"type": "text", "text": lucky_numbers[0], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
-                            "backgroundColor": red_ball_color,
-                            "cornerRadius": "50px",
-                            "width": "60px",
-                            "height": "60px",
-                            "justifyContent": "center",
-                            "alignItems": "center"
-                        },
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [{"type": "text", "text": lucky_numbers[1], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
-                            "backgroundColor": red_ball_color,
-                            "cornerRadius": "50px",
-                            "width": "60px",
-                            "height": "60px",
-                            "justifyContent": "center",
-                            "alignItems": "center",
-                            "offsetStart": "10px"
-                        },
-                        {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [{"type": "text", "text": lucky_numbers[2], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
-                            "backgroundColor": red_ball_color,
-                            "cornerRadius": "50px",
-                            "width": "60px",
-                            "height": "60px",
-                            "justifyContent": "center",
-                            "alignItems": "center",
-                            "offsetStart": "20px"
-                        }
-                    ],
-                    "justifyContent": "center" 
-                },
-                
-                # AI 分析文字區
-                {
-                    "type": "box",
-                    "layout": "vertical",
-                    "margin": "xl",
-                    "contents": [
-                        {
-                            "type": "text",
-                            "text": ai_text,
-                            "wrap": True, # 確保自動換行
-                            "size": "sm",
-                            "color": "#555555",
-                            "lineSpacing": "5px"
-                        }
-                    ],
-                    "backgroundColor": "#f0f2f5", # 稍微改一下背景色增加對比
-                    "cornerRadius": "10px",
-                    "paddingAll": "12px"
-                }
-            ]
+            "contents": contents_body # 使用動態建立的內容列表
         },
         "footer": {
             "type": "box",
