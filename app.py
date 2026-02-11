@@ -240,7 +240,7 @@ def handle_message(event):
         MessagingApi(api_client).reply_message(
             ReplyMessageRequest(
                 reply_token=event.reply_token, 
-                messages=[TextMessage(text="🔮 歡迎使用台彩助手！\n\n輸入生日 (如 1990-01-01) 查看靈數報告。\n輸入「攻略」查看刮刮樂推薦圖片。")]
+                messages=[TextMessage(text="🔮 歡迎使用台彩助手！\n\n輸入生日 (如 1993-01-01) 查看靈數報告。\n輸入「攻略」查看刮刮樂推薦圖片。")]
             )
         )
 
