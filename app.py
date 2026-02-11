@@ -13,7 +13,8 @@ from linebot.v3.messaging import (
     MessagingApi,
     ReplyMessageRequest,
     FlexMessage,
-    FlexContainer
+    FlexContainer,
+    TextMessage
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
@@ -34,40 +35,30 @@ client = Groq(api_key=GROQ_API_KEY)
 # --- 1. 核心計算邏輯 ---
 
 def calculate_single_digit(n):
-    """將數字加總至個位數 (保留 11, 22, 33)"""
-    # 這裡確保 11, 22, 33 不會被縮減
     while n > 9 and n not in [11, 22, 33]:
         n = sum(int(d) for d in str(n))
     return n
 
 def calculate_lp(year, month, day):
-    """計算生命靈數"""
-    # 先個別加總年、月、日，再縮減
     total = sum(int(d) for d in str(year)) + sum(int(d) for d in str(month)) + sum(int(d) for d in str(day))
     return calculate_single_digit(total)
 
 def calculate_pd(month, day):
-    """計算個人日數"""
-    # 取得台灣時間
     tz = timezone(timedelta(hours=8))
     now = datetime.now(tz)
-    
     total = sum(int(d) for d in str(month)) + sum(int(d) for d in str(day)) + \
             sum(int(d) for d in str(now.year)) + sum(int(d) for d in str(now.month)) + sum(int(d) for d in str(now.day))
     return calculate_single_digit(total)
 
 def get_lucky_numbers(lp, pd, day):
-    """生成3組雙碼"""
     tz = timezone(timedelta(hours=8))
     now = datetime.now(tz)
     
-    # 遇到大師數計算種子時，先縮減為單數 (11->2) 以利公式計算
     lp_single = lp if lp < 10 else sum(int(d) for d in str(lp))
     pd_single = pd if pd < 10 else sum(int(d) for d in str(pd))
     
     seed = (lp_single * pd_single * (day + now.day)) % 100
     
-    # 生成邏輯
     n1 = (seed % 50) 
     n2 = (seed + 15) % 50
     n3 = (seed + 33) % 50
@@ -76,17 +67,15 @@ def get_lucky_numbers(lp, pd, day):
     final_list = []
     
     for num in raw_list:
-        if num == 0: num = 1 # 避免00
+        if num == 0: num = 1
         final_list.append(f"{num:02d}")
         
     return final_list
 
-# --- 2. AI 生成與 Flex Message 設計 ---
+# --- 2. AI 生成邏輯 ---
 
 def generate_short_analysis(lp, lucky_numbers):
     nums_str = ", ".join(lucky_numbers)
-    
-    # 大師數特殊提示
     master_note = ""
     if lp in [11, 22, 33]:
         master_note = f"注意：此人是稀有的「大師數 {lp}」，請強調其天賦、直覺與使命感。"
@@ -100,12 +89,8 @@ def generate_short_analysis(lp, lucky_numbers):
     重點放在：今日的能量關鍵字、財運指引。
     風格：正向、神秘、果斷。
     
-    嚴格禁止：
-    1. 不要重複列出數字。
-    2. 不要自我介紹。
-    3. 不要任何格式符號。
+    嚴格禁止：重複數字、自我介紹、Markdown格式。
     """
-
     try:
         completion = client.chat.completions.create(
             messages=[
@@ -118,33 +103,28 @@ def generate_short_analysis(lp, lucky_numbers):
         )
         return completion.choices[0].message.content.strip()
     except Exception:
-        return "今日能量流動順暢，直覺將是你最好的指引。財運潛藏在日常細節中，保持專注即可看見機會。"
+        return "今日能量流動順暢，直覺將是你最好的指引。"
+
+# --- 3. Flex Message 設計 ---
 
 def create_flex_bubble(lp, lucky_numbers, ai_text):
-    """
-    製作 LINE Flex Message (卡片) 的 JSON 結構
-    """
-    
-    # 1. 取得今日日期字串 (台灣時間)
+    """靈數結果卡片"""
     tz = timezone(timedelta(hours=8))
     today_str = datetime.now(tz).strftime("%Y / %m / %d")
 
-    # 2. 判斷是否為大師數，設定顏色與文字
     is_master = False
     rarity_component = None
     
     if lp in [11, 22, 33]:
         is_master = True
-        ball_color = "#6610f2" # 紫色 (大師)
-        
-        # 設定稀有度文字
+        ball_color = "#6610f2"
         if lp == 11:
             rarity_title = "🌟 大師數 (稀有度約 6%)"
             rarity_desc = "直覺與靈性的先驅"
         elif lp == 22:
             rarity_title = "🌟 大師數 (稀有度約 2%)"
             rarity_desc = "夢想的實踐大師"
-        else: # 33
+        else:
             rarity_title = "🌟 大師數 (稀有度 < 1%)"
             rarity_desc = "無私的療癒導師"
             
@@ -161,12 +141,9 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
             "paddingAll": "8px"
         }
     else:
-        ball_color = "#28a745" # 綠色 (一般)
+        ball_color = "#28a745"
 
-    # 3. 建立 Body 內容列表
     body_contents = []
-
-    # A. 生命靈數區塊 (包含球與標題)
     body_contents.append({
         "type": "box",
         "layout": "horizontal",
@@ -177,7 +154,7 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
                 "type": "box",
                 "layout": "vertical",
                 "contents": [{"type": "text", "text": str(lp), "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "xl"}],
-                "backgroundColor": ball_color, # 使用上面判斷過的顏色
+                "backgroundColor": ball_color,
                 "cornerRadius": "50px",
                 "width": "70px",
                 "height": "70px",
@@ -189,87 +166,82 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
         "margin": "md"
     })
 
-    # B. 如果是大師數，插入稀有度區塊
     if is_master and rarity_component:
         body_contents.append(rarity_component)
 
-    # C. 分隔線與推薦尾號
-    body_contents.append({"type": "separator", "margin": "lg"})
-    body_contents.append({
-        "type": "text",
-        "text": "✨ 推薦尾號",
-        "weight": "bold",
-        "size": "md",
-        "margin": "lg",
-        "color": "#333333"
-    })
+    body_contents.extend([
+        {"type": "separator", "margin": "lg"},
+        {
+            "type": "text",
+            "text": "✨ 推薦尾號",
+            "weight": "bold",
+            "size": "md",
+            "margin": "lg",
+            "color": "#333333"
+        },
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "md",
+            "contents": [
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [{"type": "text", "text": lucky_numbers[0], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
+                    "backgroundColor": "#FF4B4B",
+                    "cornerRadius": "50px",
+                    "width": "60px",
+                    "height": "60px",
+                    "justifyContent": "center",
+                    "alignItems": "center"
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [{"type": "text", "text": lucky_numbers[1], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
+                    "backgroundColor": "#FF4B4B",
+                    "cornerRadius": "50px",
+                    "width": "60px",
+                    "height": "60px",
+                    "justifyContent": "center",
+                    "alignItems": "center",
+                    "offsetStart": "10px"
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [{"type": "text", "text": lucky_numbers[2], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
+                    "backgroundColor": "#FF4B4B",
+                    "cornerRadius": "50px",
+                    "width": "60px",
+                    "height": "60px",
+                    "justifyContent": "center",
+                    "alignItems": "center",
+                    "offsetStart": "20px"
+                }
+            ],
+            "justifyContent": "center" 
+        },
+        {
+            "type": "box",
+            "layout": "vertical",
+            "margin": "xl",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": ai_text,
+                    "wrap": True,
+                    "size": "sm",
+                    "color": "#555555",
+                    "lineSpacing": "5px"
+                }
+            ],
+            "backgroundColor": "#f0f2f5",
+            "cornerRadius": "10px",
+            "paddingAll": "12px"
+        }
+    ])
 
-    # D. 紅色球體區塊
-    body_contents.append({
-        "type": "box",
-        "layout": "horizontal",
-        "margin": "md",
-        "contents": [
-            {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [{"type": "text", "text": lucky_numbers[0], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
-                "backgroundColor": "#FF4B4B",
-                "cornerRadius": "50px",
-                "width": "60px",
-                "height": "60px",
-                "justifyContent": "center",
-                "alignItems": "center"
-            },
-            {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [{"type": "text", "text": lucky_numbers[1], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
-                "backgroundColor": "#FF4B4B",
-                "cornerRadius": "50px",
-                "width": "60px",
-                "height": "60px",
-                "justifyContent": "center",
-                "alignItems": "center",
-                "offsetStart": "10px"
-            },
-            {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [{"type": "text", "text": lucky_numbers[2], "color": "#ffffff", "weight": "bold", "align": "center", "gravity": "center", "size": "lg"}],
-                "backgroundColor": "#FF4B4B",
-                "cornerRadius": "50px",
-                "width": "60px",
-                "height": "60px",
-                "justifyContent": "center",
-                "alignItems": "center",
-                "offsetStart": "20px"
-            }
-        ],
-        "justifyContent": "center" 
-    })
-
-    # E. AI 文字區塊
-    body_contents.append({
-        "type": "box",
-        "layout": "vertical",
-        "margin": "xl",
-        "contents": [
-            {
-                "type": "text",
-                "text": ai_text,
-                "wrap": True,
-                "size": "sm",
-                "color": "#555555",
-                "lineSpacing": "5px"
-            }
-        ],
-        "backgroundColor": "#f0f2f5",
-        "cornerRadius": "10px",
-        "paddingAll": "12px"
-    })
-
-    # 4. 組裝完整 JSON
     bubble_json = {
         "type": "bubble",
         "size": "giga",
@@ -284,12 +256,11 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
                     "color": "#FFFFFF",
                     "size": "lg"
                 },
-                # 【新增】日期顯示
                 {
                     "type": "text",
                     "text": today_str,
                     "weight": "regular",
-                    "color": "#FFFBE6", # 微微淡黃白，增加層次
+                    "color": "#FFFBE6",
                     "size": "sm",
                     "margin": "sm"
                 }
@@ -318,7 +289,56 @@ def create_flex_bubble(lp, lucky_numbers, ai_text):
     }
     return FlexMessage(alt_text="您的今日幸運靈數報告", contents=FlexContainer.from_json(json.dumps(bubble_json)))
 
-# --- 3. Webhook 處理 ---
+def create_scratch_off_carousel():
+    """【新功能】三張攻略圖輪播"""
+    base_url = request.host_url.rstrip('/')
+    
+    # 定義三張圖片的網址 (一定要確認 static 資料夾裡有這三個檔名)
+    img1 = f"{base_url}/static/price100.png"
+    img2 = f"{base_url}/static/price200.png"
+    img3 = f"{base_url}/static/price300.png"
+    
+    # 建立三個 Bubble (卡片)
+    bubbles = [
+        # 卡片 1: 100元專區
+        {
+            "type": "bubble", "size": "giga",
+            "hero": {
+                "type": "image", "url": img1, "size": "full",
+                "aspectRatio": "20:30", "aspectMode": "cover",
+                "action": { "type": "uri", "uri": img1 } # 點擊放大
+            }
+        },
+        # 卡片 2: 200元專區
+        {
+            "type": "bubble", "size": "giga",
+            "hero": {
+                "type": "image", "url": img2, "size": "full",
+                "aspectRatio": "20:30", "aspectMode": "cover",
+                "action": { "type": "uri", "uri": img2 }
+            }
+        },
+        # 卡片 3: 300元以上專區
+        {
+            "type": "bubble", "size": "giga",
+            "hero": {
+                "type": "image", "url": img3, "size": "full",
+                "aspectRatio": "20:30", "aspectMode": "cover",
+                "action": { "type": "uri", "uri": img3 }
+            }
+        }
+    ]
+    
+    # 回傳 Carousel (輪播容器)
+    return FlexMessage(
+        alt_text="2026刮刮樂全攻略",
+        contents={
+            "type": "carousel",
+            "contents": bubbles
+        }
+    )
+
+# --- 4. Webhook 處理 ---
 
 @app.route("/webhook", methods=['POST'])
 def callback():
@@ -334,7 +354,46 @@ def callback():
 def handle_message(event):
     user_text = event.message.text.strip()
     
-    # 驗證生日格式
+    # 1. 觸發三張圖輪播 (包含選單按鈕的關鍵字)
+    if user_text in ["攻略", "刮刮樂", "推薦", "2026刮刮樂推薦", "2026刮刮樂攻略"]:
+        reply_msg = create_scratch_off_carousel()
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message_with_http_info(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[reply_msg]
+                )
+            )
+        return
+
+    # 2. 五行八卦預告
+    if user_text == "五行八卦":
+        msg = "☯️ 五行八卦功能即將推出！\n\n目前您可以輸入生日 (如 1990-05-20)，先體驗「西方生命靈數」的幸運預測喔！✨"
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message_with_http_info(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=msg)]
+                )
+            )
+        return
+        
+    # 3. 使用說明
+    if user_text in ["使用說明", "怎麼用", "教學"]:
+        msg = "🔮 歡迎使用台彩助手！\n\n請直接輸入您的生日，格式為「西元年-月-日」。\n\n範例：\n1990-05-20\n\n機器人將為您計算今日專屬靈數與幸運尾號！✨"
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message_with_http_info(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=msg)]
+                )
+            )
+        return
+
+    # 4. 生日計算
     match = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$', user_text)
     
     if match:
@@ -343,18 +402,12 @@ def handle_message(event):
             month = int(match.group(2))
             day = int(match.group(3))
             
-            # 1. 計算
             lp = calculate_lp(year, month, day)
             pd = calculate_pd(month, day)
             lucky_numbers = get_lucky_numbers(lp, pd, day)
-            
-            # 2. AI 生成文字
             ai_text = generate_short_analysis(lp, lucky_numbers)
-            
-            # 3. 製作 Flex Message
             flex_message = create_flex_bubble(lp, lucky_numbers, ai_text)
             
-            # 4. 回覆
             with ApiClient(configuration) as api_client:
                 line_bot_api = MessagingApi(api_client)
                 line_bot_api.reply_message_with_http_info(
@@ -373,12 +426,14 @@ def handle_message(event):
                     )
                 )
     else:
+        # 預設引導
+        help_text = "🔮 歡迎使用台彩助手！\n\n輸入生日 (如 1990-05-20)\n即可獲取今日專屬幸運號碼✨\n\n或是點擊下方選單查看更多功能👇"
         with ApiClient(configuration) as api_client:
             line_bot_api = MessagingApi(api_client)
             line_bot_api.reply_message_with_http_info(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="請輸入生日格式：YYYY-MM-DD\n例如：1990-05-20")]
+                    messages=[TextMessage(text=help_text)]
                 )
             )
 
