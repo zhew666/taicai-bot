@@ -290,7 +290,7 @@ def handle_message(event):
         cmd_intro(user_id, token, member)
     elif text.startswith("跟隨"):
         cmd_follow(user_id, token, text, member)
-    elif text.startswith("空投"):
+    elif text.startswith("空投") or text == "開始空投":
         cmd_airdrop(user_id, token, text, member)
     elif text in ("停止", "結束", "stop"):
         cmd_stop(user_id, token)
