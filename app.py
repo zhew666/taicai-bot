@@ -1,248 +1,195 @@
+# -*- coding: utf-8 -*-
+"""
+百家之眼 LINE Bot Server
+"""
 import os
-import re
-import json
-from datetime import datetime, timedelta, timezone
+import threading
+import time
 from flask import Flask, request, abort
-
-# LINE SDK v3
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
-    Configuration,
-    ApiClient,
-    MessagingApi,
-    ReplyMessageRequest,
-    FlexMessage,
-    FlexContainer,
-    TextMessage,
-    ImageMessage
+    Configuration, ApiClient, MessagingApi,
+    ReplyMessageRequest, PushMessageRequest, TextMessage
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from supabase import create_client
 
-# Groq
-from groq import Groq
+app     = Flask(__name__)
+handler = WebhookHandler(os.environ.get('LINE_CHANNEL_SECRET'))
+config  = Configuration(access_token=os.environ.get('LINE_CHANNEL_ACCESS_TOKEN'))
+sb      = create_client(
+    os.environ.get('SUPABASE_URL'),
+    os.environ.get('SUPABASE_KEY')
+)
 
-app = Flask(__name__)
+# ── 跟隨狀態 ──────────────────────────────────────────────
+following   = {}   # user_id → {table_id, last_shoe, last_hand}
+follow_lock = threading.Lock()
 
-# --- 設定區 ---
-CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
-CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
-GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
+# ── 工具函式 ──────────────────────────────────────────────
+def normalize_table(text: str):
+    text = text.strip().replace("廳", "").replace("第", "")
+    if text.isdigit():
+        return f"BAG{int(text):02d}"
+    text = text.upper()
+    if text.startswith("BAG"):
+        return text
+    return None
 
-configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(CHANNEL_SECRET)
-client = Groq(api_key=GROQ_API_KEY)
+def format_hand(row: dict) -> str:
+    table  = row.get("table_id", "")
+    shoe   = row.get("shoe", "")
+    hand   = row.get("hand_num", "")
+    dealer = row.get("dealer", "")
+    p1, p2, p3 = row.get("p1","-"), row.get("p2","-"), row.get("p3","-")
+    b1, b2, b3 = row.get("b1","-"), row.get("b2","-"), row.get("b3","-")
+    player_cards = " ".join(c for c in [p1, p2, p3] if c != "-")
+    banker_cards = " ".join(c for c in [b1, b2, b3] if c != "-")
 
-# --- 1. 計算邏輯 ---
-def calculate_single_digit(n):
-    # 保留 11, 22, 33 不加總
-    while n > 9 and n not in [11, 22, 33]:
-        n = sum(int(d) for d in str(n))
-    return n
+    def ev_line(label, val):
+        val  = val or 0
+        sign = "+" if val > 0 else ""
+        star = " ✅" if val > 0 else ""
+        return f"  {label}：{sign}{val:.4f}{star}"
 
-def calculate_lp(year, month, day):
-    total = sum(int(d) for d in str(year)) + sum(int(d) for d in str(month)) + sum(int(d) for d in str(day))
-    return calculate_single_digit(total)
-
-def calculate_pd(month, day):
-    tz = timezone(timedelta(hours=8))
-    now = datetime.now(tz)
-    total = sum(int(d) for d in str(month)) + sum(int(d) for d in str(day)) + \
-            sum(int(d) for d in str(now.year)) + sum(int(d) for d in str(now.month)) + sum(int(d) for d in str(now.day))
-    return calculate_single_digit(total)
-
-def get_lucky_numbers(lp, pd, day):
-    tz = timezone(timedelta(hours=8))
-    now = datetime.now(tz)
-    # 計算亂數種子
-    lp_s = lp if lp < 10 else sum(int(d) for d in str(lp))
-    pd_s = pd if pd < 10 else sum(int(d) for d in str(pd))
-    seed = (lp_s * pd_s * (day + now.day)) % 100
-    
-    n1, n2, n3 = (seed % 50), (seed + 15) % 50, (seed + 33) % 50
-    return [f"{max(1, n1):02d}", f"{max(1, n2):02d}", f"{max(1, n3):02d}"]
-
-# --- 2. AI 短評 ---
-def generate_short_analysis(lp, lucky_numbers):
-    nums_str = ", ".join(lucky_numbers)
-    # 若是大師數，加入提示
-    master_note = ""
-    if lp in [11, 22, 33]:
-        master_note = f"此人為大師數 {lp}，請強調天賦與直覺。"
-
-    system_prompt = f"""
-    你是一位精簡的運勢分析師。使用者資料：生命靈數 {lp}，今日幸運尾號 {nums_str}。
-    {master_note}
-    請給出一段約 50-60 字的短評。重點：今日能量關鍵字、財運指引。
-    風格：正向、神秘、果斷。嚴禁Markdown格式。
-    """
-    try:
-        completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": "請給出今日指引"}
-            ],
-            model="llama-3.1-8b-instant",
-            temperature=0.7,
-            max_tokens=300,
-        )
-        return completion.choices[0].message.content.strip()
-    except:
-        return "今日能量流動順暢，直覺將是你最好的指引，請相信自己的判斷。"
-
-# --- 3. 豪華版 Flex Message (復原你的 image_98973e 設計) ---
-def create_luxury_flex(lp, lucky_numbers, ai_text):
-    tz = timezone(timedelta(hours=8))
-    today_str = datetime.now(tz).strftime("%Y / %m / %d")
-    
-    # 判斷大師數顏色與標籤
-    is_master = False
-    rarity_box = None
-    ball_color = "#28a745" # 預設綠色
-
-    if lp in [11, 22, 33]:
-        is_master = True
-        ball_color = "#6610f2" # 大師數紫色
-        
-        # 設定稀有度文字
-        if lp == 11:
-            r_title, r_desc = "🌟 大師數 (稀有度約 6%)", "直覺與靈性的先驅"
-        elif lp == 22:
-            r_title, r_desc = "🌟 大師數 (稀有度約 2%)", "夢想的實踐大師"
-        else:
-            r_title, r_desc = "🌟 大師數 (稀有度 < 1%)", "無私的療癒導師"
-            
-        rarity_box = {
-            "type": "box", "layout": "vertical", "margin": "md", "backgroundColor": "#f3e5f5", "cornerRadius": "8px", "paddingAll": "8px",
-            "contents": [
-                {"type": "text", "text": r_title, "size": "xs", "color": "#6610f2", "weight": "bold", "align": "center"},
-                {"type": "text", "text": r_desc, "size": "xxs", "color": "#999999", "align": "center", "margin": "xs"}
-            ]
-        }
-
-    # 建立主要內容
-    body_contents = []
-    
-    # 1. 靈數大球
-    body_contents.append({
-        "type": "box", "layout": "horizontal", "alignItems": "center", "margin": "md",
-        "contents": [
-            {"type": "text", "text": "生命靈數", "size": "md", "color": "#aaaaaa", "flex": 1},
-            {
-                "type": "box", "layout": "vertical", "width": "70px", "height": "70px", "backgroundColor": ball_color, "cornerRadius": "35px", "justifyContent": "center", "alignItems": "center", "flex": 0,
-                "contents": [{"type": "text", "text": str(lp), "color": "#ffffff", "weight": "bold", "size": "xl"}]
-            }
-        ]
-    })
-
-    # 2. 如果是大師數，加入稀有度方塊
-    if is_master and rarity_box:
-        body_contents.append(rarity_box)
-
-    # 3. 分隔線與標題
-    body_contents.extend([
-        {"type": "separator", "margin": "lg"},
-        {"type": "text", "text": "✨ 推薦尾號", "weight": "bold", "size": "md", "margin": "lg", "color": "#333333"}
+    table_num = table.replace("BAG","").lstrip("0") or table
+    return "\n".join([
+        f"━━━━━━━━━━━━━━━━",
+        f"第{table_num}廳｜靴{shoe} 第{hand}手",
+        f"荷官：{dealer}",
+        f"閒牌：{player_cards}",
+        f"莊牌：{banker_cards}",
+        f"── EV ──",
+        ev_line("莊",  row.get("ev_banker")),
+        ev_line("閒",  row.get("ev_player")),
+        ev_line("和",  row.get("ev_tie")),
+        ev_line("超六", row.get("ev_super6")),
+        ev_line("閒對", row.get("ev_pair_p")),
+        ev_line("莊對", row.get("ev_pair_b")),
     ])
 
-    # 4. 紅色幸運球 (水平排列)
-    lucky_balls = []
-    for num in lucky_numbers:
-        lucky_balls.append({
-            "type": "box", "layout": "vertical", "width": "50px", "height": "50px", "backgroundColor": "#FF4B4B", "cornerRadius": "25px", "justifyContent": "center", "alignItems": "center", "margin": "md",
-            "contents": [{"type": "text", "text": num, "color": "#ffffff", "weight": "bold", "size": "lg"}]
-        })
-    
-    body_contents.append({
-        "type": "box", "layout": "horizontal", "justifyContent": "center", "margin": "md",
-        "contents": lucky_balls
-    })
+def push_text(user_id: str, text: str):
+    with ApiClient(config) as api_client:
+        MessagingApi(api_client).push_message(
+            PushMessageRequest(to=user_id, messages=[TextMessage(text=text)]))
 
-    # 5. AI 分析灰框
-    body_contents.append({
-        "type": "box", "layout": "vertical", "margin": "xl", "backgroundColor": "#f0f2f5", "cornerRadius": "10px", "paddingAll": "12px",
-        "contents": [{"type": "text", "text": ai_text, "wrap": True, "size": "sm", "color": "#555555", "lineSpacing": "5px"}]
-    })
+# ── 背景輪詢 ──────────────────────────────────────────────
+def poll_loop():
+    while True:
+        time.sleep(5)
+        with follow_lock:
+            users = dict(following)
 
-    # 組裝最終 JSON
-    bubble = {
-        "type": "bubble", "size": "giga",
-        "header": {
-            "type": "box", "layout": "vertical", "backgroundColor": "#FFD700", "paddingAll": "20px",
-            "contents": [
-                {"type": "text", "text": "🔮 今日幸運靈數", "weight": "bold", "color": "#FFFFFF", "size": "lg"},
-                {"type": "text", "text": today_str, "color": "#FFFBE6", "size": "sm", "margin": "sm"}
-            ]
-        },
-        "body": {"type": "box", "layout": "vertical", "contents": body_contents},
-        "footer": {
-            "type": "box", "layout": "vertical",
-            "contents": [{"type": "text", "text": "僅供娛樂參考，不保證中獎", "size": "xs", "color": "#bbbbbb", "align": "center"}]
-        }
-    }
-    return FlexMessage(alt_text="今日幸運報告", contents=FlexContainer.from_json(json.dumps(bubble)))
+        for user_id, state in users.items():
+            table_id  = state["table_id"]
+            last_shoe = state["last_shoe"]
+            last_hand = state["last_hand"]
+            try:
+                latest = (sb.table("baccarat_hands")
+                            .select("*")
+                            .eq("table_id", table_id)
+                            .order("shoe",     desc=True)
+                            .order("hand_num", desc=True)
+                            .limit(1).execute()).data
+                if not latest:
+                    continue
+                row      = latest[0]
+                cur_shoe = row["shoe"]
+                cur_hand = row["hand_num"]
 
-# --- 4. Webhook 處理 ---
+                # 新靴偵測
+                if last_shoe is not None and cur_shoe != last_shoe:
+                    table_num = table_id.replace("BAG","").lstrip("0")
+                    push_text(user_id,
+                        f"🔄 第{table_num}廳 新靴開始\n跟隨已停止，輸入「跟隨 X廳」重新開始")
+                    with follow_lock:
+                        following.pop(user_id, None)
+                    continue
 
-@app.route("/webhook", methods=['POST'])
+                # 首次連線
+                if last_shoe is None:
+                    with follow_lock:
+                        following[user_id]["last_shoe"] = cur_shoe
+                        following[user_id]["last_hand"] = cur_hand
+                    table_num = table_id.replace("BAG","").lstrip("0")
+                    push_text(user_id,
+                        f"✅ 已開始跟隨第{table_num}廳\n"
+                        f"目前靴{cur_shoe} 第{cur_hand}手，等待下一手...")
+                    continue
+
+                # 有新手
+                if cur_hand > last_hand:
+                    new_rows = (sb.table("baccarat_hands")
+                                  .select("*")
+                                  .eq("table_id", table_id)
+                                  .eq("shoe", cur_shoe)
+                                  .gt("hand_num", last_hand)
+                                  .order("hand_num").execute()).data
+                    for r in new_rows:
+                        push_text(user_id, format_hand(r))
+                    with follow_lock:
+                        if user_id in following:
+                            following[user_id]["last_shoe"] = cur_shoe
+                            following[user_id]["last_hand"] = cur_hand
+
+            except Exception as e:
+                print(f"[Poll Error] {user_id}: {e}")
+
+threading.Thread(target=poll_loop, daemon=True).start()
+
+# ── LINE Webhook ───────────────────────────────────────────
+@app.route("/webhook", methods=["POST"])
 def callback():
-    signature = request.headers.get('X-Line-Signature', '')
+    signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-    return 'OK'
+    return "OK"
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
+    user_id   = event.source.user_id
     user_text = event.message.text.strip()
-    
-    # --- 功能 1: 刮刮樂攻略 (發送 3 張大圖) ---
-    if any(k in user_text for k in ["攻略", "刮刮樂", "2026"]):
-        base_url = request.host_url.rstrip('/')
-        # 確保這些檔名在你的 static 資料夾裡
-        img1 = f"{base_url}/static/price100.png"
-        img2 = f"{base_url}/static/price200.png"
-        img3 = f"{base_url}/static/price300.png"
-        
-        # 建立 3 張圖片訊息
-        image_messages = [
-            ImageMessage(original_content_url=img1, preview_image_url=img1),
-            ImageMessage(original_content_url=img2, preview_image_url=img2),
-            ImageMessage(original_content_url=img3, preview_image_url=img3)
-        ]
-        
-        with ApiClient(configuration) as api_client:
-            MessagingApi(api_client).reply_message(
-                ReplyMessageRequest(reply_token=event.reply_token, messages=image_messages)
-            )
-        return
 
-    # --- 功能 2: 豪華版生命靈數 ---
-    match = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$', user_text)
-    if match:
-        lp = calculate_lp(int(match.group(1)), int(match.group(2)), int(match.group(3)))
-        lucky_nums = get_lucky_numbers(lp, calculate_pd(int(match.group(2)), int(match.group(3))), int(match.group(3)))
-        ai_text = generate_short_analysis(lp, lucky_nums)
-        
-        # 呼叫豪華版函式
-        flex_msg = create_luxury_flex(lp, lucky_nums, ai_text)
-        
-        with ApiClient(configuration) as api_client:
-            MessagingApi(api_client).reply_message(
-                ReplyMessageRequest(reply_token=event.reply_token, messages=[flex_msg])
-            )
-        return
+    with ApiClient(config) as api_client:
+        line_api = MessagingApi(api_client)
 
-    # --- 預設引導 ---
-    with ApiClient(configuration) as api_client:
-        MessagingApi(api_client).reply_message(
-            ReplyMessageRequest(
-                reply_token=event.reply_token, 
-                messages=[TextMessage(text="🔮 歡迎使用台彩助手！\n\n輸入生日 (如 1993-01-01) 查看靈數報告。\n輸入「攻略」查看刮刮樂推薦圖片。")]
-            )
+        # 跟隨
+        if user_text.startswith("跟隨"):
+            table_id = normalize_table(user_text[2:].strip())
+            if not table_id:
+                reply = "格式錯誤，請輸入：跟隨 3廳"
+            else:
+                with follow_lock:
+                    following[user_id] = {"table_id": table_id, "last_shoe": None, "last_hand": 0}
+                table_num = table_id.replace("BAG","").lstrip("0")
+                reply = f"⏳ 正在連線第{table_num}廳，稍等..."
+            line_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[TextMessage(text=reply)]))
+            return
+
+        # 停止
+        if user_text in ("停止", "stop"):
+            with follow_lock:
+                removed = following.pop(user_id, None)
+            reply = "已停止跟隨" if removed else "目前沒有跟隨任何廳"
+            line_api.reply_message(ReplyMessageRequest(
+                reply_token=event.reply_token, messages=[TextMessage(text=reply)]))
+            return
+
+        # 預設
+        reply = (
+            "🃏 百家之眼\n"
+            "━━━━━━━━━━━━\n"
+            "跟隨 X廳  →  開始即時牌面推送\n"
+            "停止      →  停止跟隨"
         )
+        line_api.reply_message(ReplyMessageRequest(
+            reply_token=event.reply_token, messages=[TextMessage(text=reply)]))
 
 if __name__ == "__main__":
-    app.run()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
