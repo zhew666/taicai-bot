@@ -20,9 +20,10 @@ handler = WebhookHandler(os.environ["LINE_CHANNEL_SECRET"])
 config  = Configuration(access_token=os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
 sb      = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
 
-REGISTER_URL = os.environ.get("REGISTER_URL", "（請洽管理員）")
-TRIAL_HOURS  = 1
-WARN_MINUTES = 15
+REGISTER_URL   = os.environ.get("REGISTER_URL", "（請洽管理員）")
+ADMIN_USER_ID  = os.environ.get("ADMIN_USER_ID", "")
+TRIAL_HOURS    = 1
+WARN_MINUTES   = 15
 ALL_TABLES   = [f"BAG{i:02d}" for i in range(1, 14)]
 EV_FIELDS    = ["ev_banker", "ev_player", "ev_super6", "ev_pair_p", "ev_pair_b", "ev_tie"]
 EV_LABELS    = {"ev_banker": "莊", "ev_player": "閒", "ev_tie": "和",
@@ -237,6 +238,54 @@ def cmd_intro(user_id, token, member):
         f"・好友完成正式註冊 → +7 天\n\n"
         f"正式註冊：{REGISTER_URL}")
 
+def cmd_admin_activate(user_id, token, text):
+    """開通 REF-XXXX 或 開通 <user_id>"""
+    if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
+        reply_text(token, "❌ 無權限"); return
+    target = text[2:].strip()
+    if not target:
+        reply_text(token, "格式：開通 REF-XXXX 或 開通 <user_id>"); return
+
+    # 查目標成員
+    if target.upper().startswith("REF-"):
+        r = sb.table("members").select("*").eq("referral_code", target.upper()).execute()
+    else:
+        r = sb.table("members").select("*").eq("user_id", target).execute()
+
+    if not r.data:
+        reply_text(token, f"找不到成員：{target}"); return
+
+    target_member = r.data[0]
+    target_uid    = target_member["user_id"]
+
+    if target_member.get("is_member"):
+        reply_text(token, f"⚠️ {target_uid} 已是正式會員"); return
+
+    # 開通正式會員
+    sb.table("members").update({"is_member": True, "expire_at": None}).eq("user_id", target_uid).execute()
+    reply_text(token, f"✅ 已開通正式會員：{target_uid}")
+
+    # 通知被開通者
+    try:
+        push_text(target_uid, "🎉 恭喜！你的帳號已升級為正式會員，可永久使用所有功能！")
+    except Exception as e:
+        print(f"[Admin] 通知被開通者失敗: {e}", flush=True)
+
+    # 推薦人 +7 天
+    referrer_uid = target_member.get("referred_by")
+    if referrer_uid:
+        try:
+            rr = sb.table("members").select("expire_at").eq("user_id", referrer_uid).execute()
+            if rr.data:
+                exp = rr.data[0].get("expire_at")
+                base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
+                new_exp = (base + timedelta(days=7)).isoformat()
+                sb.table("members").update({"expire_at": new_exp}).eq("user_id", referrer_uid).execute()
+                push_text(referrer_uid, "🎉 你推薦的好友完成正式註冊，使用期限 +7 天！")
+                reply_text(token, f"✅ 推薦人 {referrer_uid} 已 +7 天")
+        except Exception as e:
+            print(f"[Admin] 推薦人加天失敗: {e}", flush=True)
+
 def cmd_enter_code(user_id, token, text, member):
     import re
     m = re.search(r'(REF-[A-Z0-9]{4,6})', text.upper())
@@ -288,6 +337,8 @@ def handle_message(event):
         reply_text(token, "系統暫時忙碌，請稍後再試")
         return
 
+    if text.startswith("開通"):
+        cmd_admin_activate(user_id, token, text); return
     if text == "介紹" or "全廳掃描" in text:
         cmd_intro(user_id, token, member)
     elif text.startswith("跟隨"):
