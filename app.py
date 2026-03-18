@@ -254,8 +254,9 @@ def is_admin(user_id: str) -> bool:
     if ADMIN_USER_ID and user_id == ADMIN_USER_ID:
         return True
     if ADMIN_REF_CODE:
-        r = sb.table("members").select("user_id").eq("referral_code", ADMIN_REF_CODE.upper()).execute()
-        if r.data and r.data[0]["user_id"] == user_id:
+        codes = [c.strip().upper() for c in ADMIN_REF_CODE.split(",") if c.strip()]
+        r = sb.table("members").select("user_id").in_("referral_code", codes).execute()
+        if any(row["user_id"] == user_id for row in (r.data or [])):
             return True
     return False
 
