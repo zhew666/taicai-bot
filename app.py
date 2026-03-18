@@ -197,6 +197,44 @@ def cmd_my_code(user_id, token, member):
         f"推薦好友使用推薦碼：每人 +1 天\n"
         f"好友完成正式註冊：+7 天")
 
+def cmd_intro(user_id, token, member):
+    code = member.get("referral_code", "N/A")
+    exp  = member.get("expire_at", "")
+    is_m = member.get("is_member", False)
+
+    if is_m:
+        status = "✅ 正式會員（永久使用）"
+    elif exp:
+        exp_dt  = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+        exp_str = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+        remaining = exp_dt - datetime.now(timezone.utc)
+        mins = int(remaining.total_seconds() / 60)
+        if mins > 0:
+            status = f"⏳ 試用中，剩餘約 {mins} 分鐘（到期：{exp_str}）"
+        else:
+            status = f"⏰ 試用已結束"
+    else:
+        status = "⏰ 試用已結束"
+
+    reply_text(token,
+        f"🃏 百家之眼 — 你的百家樂 EV 顧問\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"即時監控 OFA 娛樂城 13 張桌台\n"
+        f"透過 EV 公式判斷每手下注優劣\n\n"
+        f"📡 空投系統\n"
+        f"  全廳掃描，正EV出現立刻通知\n\n"
+        f"👁 跟隨系統\n"
+        f"  鎖定指定廳，每手牌面即時推送\n\n"
+        f"🧙 仙人指路\n"
+        f"  一鍵查詢全廳當前最高EV\n\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"📋 你的帳號狀態：\n"
+        f"{status}\n\n"
+        f"🔗 你的專屬推薦碼：{code}\n"
+        f"・每邀請 1 人試用 → +1 天\n"
+        f"・好友完成正式註冊 → +7 天\n\n"
+        f"正式註冊：{REGISTER_URL}")
+
 def cmd_enter_code(user_id, token, text, member):
     import re
     m = re.search(r'(REF-[A-Z0-9]{4,6})', text.upper())
@@ -248,7 +286,9 @@ def handle_message(event):
         reply_text(token, "系統暫時忙碌，請稍後再試")
         return
 
-    if text.startswith("跟隨"):
+    if text == "介紹":
+        cmd_intro(user_id, token, member)
+    elif text.startswith("跟隨"):
         cmd_follow(user_id, token, text, member)
     elif text.startswith("空投"):
         cmd_airdrop(user_id, token, text, member)
