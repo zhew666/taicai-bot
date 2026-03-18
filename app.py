@@ -381,8 +381,14 @@ def poll_loop():
             print(f"[Poll] 取手牌失敗: {e}", flush=True)
             continue
 
-        _poll_following(latest_hands)
-        _poll_airdrop(latest_hands)
+        try:
+            _poll_following(latest_hands)
+        except Exception as e:
+            print(f"[Poll] _poll_following 崩潰: {e}", flush=True)
+        try:
+            _poll_airdrop(latest_hands)
+        except Exception as e:
+            print(f"[Poll] _poll_airdrop 崩潰: {e}", flush=True)
 
         # 試用到期警告：每 60 秒檢查一次
         now_ts = time.time()
