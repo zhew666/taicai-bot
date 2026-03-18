@@ -414,7 +414,7 @@ def handle_message(event):
         cmd_intro(user_id, token, member)
     elif text.startswith("跟隨"):
         cmd_follow(user_id, token, text, member)
-    elif text.startswith("空投") or text == "開始空投":
+    elif text.startswith("空投") or text.startswith("開始空投"):
         cmd_airdrop(user_id, token, text, member)
     elif text in ("停止", "結束", "stop"):
         cmd_stop(user_id, token)
@@ -424,7 +424,7 @@ def handle_message(event):
         cmd_my_code(user_id, token, member)
     elif text.startswith("好友推薦碼"):
         cmd_enter_code(user_id, token, text, member)
-    else:
+    elif text in ("說明", "help", "指令", "Help", "HELP"):
         reply_text(token,
             "🃏 百家之眼 指令\n"
             "━━━━━━━━━━━━━━\n"
@@ -433,7 +433,7 @@ def handle_message(event):
             "仙人指路　→ 查詢當前最高EV\n"
             "停止　　　→ 停止監控\n"
             "我的推薦碼 → 查詢推薦碼與期限\n"
-            "推薦碼 REF-XXXX → 輸入好友推薦碼")
+            "好友推薦碼 : REF-XXXX → 輸入好友推薦碼")
 
 # ── 背景輪詢 ──────────────────────────────────────────────
 def poll_loop():
