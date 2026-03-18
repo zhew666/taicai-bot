@@ -20,8 +20,9 @@ handler = WebhookHandler(os.environ["LINE_CHANNEL_SECRET"])
 config  = Configuration(access_token=os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
 sb      = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
 
-REGISTER_URL   = os.environ.get("REGISTER_URL", "（請洽管理員）")
-ADMIN_USER_ID  = os.environ.get("ADMIN_USER_ID", "")
+REGISTER_URL    = os.environ.get("REGISTER_URL", "（請洽管理員）")
+ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
+ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
 TRIAL_HOURS    = 1
 WARN_MINUTES   = 15
 ALL_TABLES   = [f"BAG{i:02d}" for i in range(1, 14)]
@@ -238,9 +239,18 @@ def cmd_intro(user_id, token, member):
         f"・好友完成正式註冊 → +7 天\n\n"
         f"正式註冊：{REGISTER_URL}")
 
+def is_admin(user_id: str) -> bool:
+    if ADMIN_USER_ID and user_id == ADMIN_USER_ID:
+        return True
+    if ADMIN_REF_CODE:
+        r = sb.table("members").select("user_id").eq("referral_code", ADMIN_REF_CODE.upper()).execute()
+        if r.data and r.data[0]["user_id"] == user_id:
+            return True
+    return False
+
 def cmd_admin_activate(user_id, token, text):
     """開通 REF-XXXX 或 開通 <user_id>"""
-    if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
+    if not is_admin(user_id):
         reply_text(token, "❌ 無權限"); return
     target = text[2:].strip()
     if not target:
@@ -288,7 +298,7 @@ def cmd_admin_activate(user_id, token, text):
 
 def cmd_admin_extend(user_id, token, text):
     """延長 <user_id或REF碼> <天數>"""
-    if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
+    if not is_admin(user_id):
         reply_text(token, "❌ 無權限"); return
     parts = text.strip().split()
     if len(parts) < 2:
