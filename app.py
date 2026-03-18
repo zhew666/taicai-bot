@@ -286,6 +286,40 @@ def cmd_admin_activate(user_id, token, text):
         except Exception as e:
             print(f"[Admin] 推薦人加天失敗: {e}", flush=True)
 
+def cmd_admin_extend(user_id, token, text):
+    """延長 <user_id或REF碼> <天數>"""
+    if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
+        reply_text(token, "❌ 無權限"); return
+    parts = text.strip().split()
+    if len(parts) < 2:
+        reply_text(token, "格式：延長 <user_id或REF碼> <天數>"); return
+    target = parts[1]
+    try:
+        days = int(parts[2]) if len(parts) >= 3 else 7
+    except ValueError:
+        reply_text(token, "天數請輸入數字"); return
+
+    if target.upper().startswith("REF-"):
+        r = sb.table("members").select("*").eq("referral_code", target.upper()).execute()
+    else:
+        r = sb.table("members").select("*").eq("user_id", target).execute()
+
+    if not r.data:
+        reply_text(token, f"找不到成員：{target}"); return
+
+    m = r.data[0]
+    uid = m["user_id"]
+    exp = m.get("expire_at")
+    base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
+    new_exp = (base + timedelta(days=days)).isoformat()
+    sb.table("members").update({"expire_at": new_exp}).eq("user_id", uid).execute()
+
+    new_exp_tw = datetime.fromisoformat(new_exp).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+    reply_text(token, f"✅ {uid} 延長 {days} 天\n新到期：{new_exp_tw}")
+    try:
+        push_text(uid, f"🎉 你的使用期限已延長 {days} 天！新到期時間：{new_exp_tw}")
+    except: pass
+
 def cmd_enter_code(user_id, token, text, member):
     import re
     m = re.search(r'(REF-[A-Z0-9]{4,6})', text.upper())
@@ -339,6 +373,8 @@ def handle_message(event):
 
     if text.startswith("開通"):
         cmd_admin_activate(user_id, token, text); return
+    if text.startswith("延長"):
+        cmd_admin_extend(user_id, token, text); return
     if text == "介紹" or "全廳掃描" in text:
         cmd_intro(user_id, token, member)
     elif text.startswith("跟隨"):
