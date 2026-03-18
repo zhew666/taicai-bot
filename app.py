@@ -275,7 +275,7 @@ def handle_message(event):
         reply_text(token, "系統暫時忙碌，請稍後再試")
         return
 
-    if text == "介紹":
+    if text == "介紹" or "全廳掃描" in text:
         cmd_intro(user_id, token, member)
     elif text.startswith("跟隨"):
         cmd_follow(user_id, token, text, member)
