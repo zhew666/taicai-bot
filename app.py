@@ -154,7 +154,7 @@ def cmd_follow(user_id, token, text, member):
     if not tid or tid not in ALL_TABLES:
         reply_text(token, "格式：跟隨 X廳（1~13）"); return
     with follow_lock:
-        following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0}
+        following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0, "started_at": time.time()}
     reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳，稍等...")
 
 def cmd_airdrop(user_id, token, text, member):
@@ -400,6 +400,11 @@ def _poll_following(latest_hands: dict):
         try:
             row = latest_hands.get(tid)
             if not row:
+                # 超過 60 秒還查不到資料 → 通知用戶
+                if last_shoe is None and time.time() - state.get("started_at", time.time()) > 60:
+                    push_text(user_id, f"⚠️ 第{tnum(tid)}廳目前查無資料\n請確認監控腳本是否正在運行中")
+                    with follow_lock:
+                        following.pop(user_id, None)
                 print(f"[Follow] {tid} 查無資料", flush=True); continue
             cur_shoe, cur_hand = row["shoe"], row["hand_num"]
             print(f"[Follow] {tid} shoe={cur_shoe} hand={cur_hand} last={last_shoe}/{last_hand}", flush=True)
@@ -416,7 +421,8 @@ def _poll_following(latest_hands: dict):
                         following[user_id]["last_shoe"] = cur_shoe
                         following[user_id]["last_hand"] = cur_hand
                 print(f"[Follow] 首次連線，push 確認給 {user_id}", flush=True)
-                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳\n靴{cur_shoe} 第{cur_hand}手，等待下一手...")
+                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳")
+                push_text(user_id, format_hand(row))  # 立即推當前最新手
                 print(f"[Follow] push 完成", flush=True)
                 continue
 
