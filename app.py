@@ -106,7 +106,7 @@ def format_hand(row: dict) -> str:
         f"荷官：{row.get('dealer','')}",
         f"閒牌：{p}",
         f"莊牌：{b}",
-        "── EV ──",
+        "── 下一手EV ──",
         ev_line("莊",  row.get("ev_banker")),
         ev_line("閒",  row.get("ev_player")),
         ev_line("超六", row.get("ev_super6")),
@@ -202,10 +202,11 @@ def cmd_guide(user_id, token, member):
         reply_text(token, "目前無法取得數據，請稍後再試"); return
     label = EV_LABELS.get(best_field, best_field)
     t     = tnum(best_row["table_id"])
+    hand  = best_row["hand_num"]
     if best_val > 0:
-        msg = f"🧙 仙人指路\n第{t}廳 ✅ {label} EV={best_val:+.4f}"
+        msg = f"🧙 仙人指路\n第{t}廳 第{hand}手 ✅\n{label} EV={best_val:+.4f}"
     else:
-        msg = f"🧙 仙人指路\n目前無正EV選項，最接近：\n第{t}廳  {label} EV={best_val:+.4f}"
+        msg = f"🧙 仙人指路\n目前無正EV選項，最接近：\n第{t}廳 第{hand}手\n{label} EV={best_val:+.4f}"
     reply_text(token, msg)
 
 def cmd_my_code(user_id, token, member):
@@ -525,9 +526,9 @@ def _poll_airdrop(latest_hands: dict):
                         airdrop[user_id]["notified"][tid] = cur_hand
                 pos = [(EV_LABELS[f], row[f]) for f in EV_FIELDS if row.get(f) and row[f] > 0]
                 if pos:
-                    lines = [f"🪂 第{tnum(tid)}廳 第{cur_hand}手 正EV！"]
+                    lines = [f"🪂 +EV空投", f"第{tnum(tid)}廳 第{cur_hand}手"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
-                        lines.append(f"  {label}：{val:+.4f} ✅")
+                        lines.append(f"{label}：{val:+.4f} ✅")
                     push_text(user_id, "\n".join(lines))
         except Exception as e:
             print(f"[Airdrop Error] {user_id}: {e}", flush=True)
