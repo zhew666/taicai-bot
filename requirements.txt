@@ -1,4 +1,4 @@
 flask
 line-bot-sdk
-groq
+supabase
 gunicorn
