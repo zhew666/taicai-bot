@@ -34,6 +34,19 @@ airdrop      = {}   # user_id → {expire_at, notified: {table_id: last_hand}}
 follow_lock  = threading.Lock()
 airdrop_lock = threading.Lock()
 _last_trial_check = 0
+_poll_started = False
+_poll_start_lock = threading.Lock()
+
+@app.before_request
+def ensure_poll_running():
+    global _poll_started
+    if not _poll_started:
+        with _poll_start_lock:
+            if not _poll_started:
+                t = threading.Thread(target=poll_loop, daemon=True)
+                t.start()
+                _poll_started = True
+                print(f"[app] poll_loop started pid={os.getpid()}", flush=True)
 
 # ── 工具函式 ──────────────────────────────────────────────
 def tnum(table_id: str) -> str:
