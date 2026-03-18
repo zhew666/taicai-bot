@@ -35,6 +35,16 @@ following    = {}   # user_id → {table_id, last_shoe, last_hand}
 airdrop      = {}   # user_id → {expire_at, notified: {table_id: last_hand}}
 follow_lock  = threading.Lock()
 airdrop_lock = threading.Lock()
+_cooldown    = {}   # user_id → last_cmd_time
+COOLDOWN_SEC = 5
+
+def check_cooldown(user_id: str) -> bool:
+    """True = 可以執行；False = 冷卻中"""
+    now = time.time()
+    if now - _cooldown.get(user_id, 0) < COOLDOWN_SEC:
+        return False
+    _cooldown[user_id] = now
+    return True
 _last_trial_check = 0
 _poll_started = False
 _poll_start_lock = threading.Lock()
@@ -385,6 +395,10 @@ def handle_message(event):
         cmd_admin_activate(user_id, token, text); return
     if text.startswith("延長"):
         cmd_admin_extend(user_id, token, text); return
+
+    if not check_cooldown(user_id):
+        return  # 冷卻中，直接忽略
+
     if text == "介紹" or "全廳掃描" in text:
         cmd_intro(user_id, token, member)
     elif text.startswith("跟隨"):
