@@ -356,14 +356,23 @@ def cmd_enter_code(user_id, token, text, member):
     referrer = r.data[0]
     if referrer["user_id"] == user_id:
         reply_text(token, "不能輸入自己的推薦碼"); return
-    # 更新被推薦人
-    sb.table("members").update({"referred_by": referrer["user_id"]}).eq("user_id", user_id).execute()
+    # 更新被推薦人 + 試用延長到 6 小時
+    trial_start = member.get("trial_start")
+    if trial_start:
+        ts = datetime.fromisoformat(trial_start.replace("Z", "+00:00"))
+        new_user_exp = (ts + timedelta(hours=6)).isoformat()
+    else:
+        new_user_exp = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+    sb.table("members").update({
+        "referred_by": referrer["user_id"],
+        "expire_at": new_user_exp
+    }).eq("user_id", user_id).execute()
     # 推薦人 +1 天
     exp = referrer["expire_at"]
     base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
     new_exp = (base + timedelta(days=1)).isoformat()
     sb.table("members").update({"expire_at": new_exp}).eq("user_id", referrer["user_id"]).execute()
-    reply_text(token, "✅ 推薦碼輸入成功！")
+    reply_text(token, "✅ 推薦碼輸入成功！試用時間已延長至 6 小時 🎁")
     try:
         push_text(referrer["user_id"], "🎉 有好友使用你的推薦碼，使用期限 +1 天！")
     except: pass
@@ -413,7 +422,7 @@ def handle_message(event):
         cmd_guide(user_id, token, member)
     elif text in ("我的推薦碼", "推薦碼"):
         cmd_my_code(user_id, token, member)
-    elif "REF-" in text.upper():
+    elif text.startswith("好友推薦碼"):
         cmd_enter_code(user_id, token, text, member)
     else:
         reply_text(token,
