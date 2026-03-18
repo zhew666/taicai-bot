@@ -140,7 +140,8 @@ def poll_loop():
             except Exception as e:
                 print(f"[Poll Error] {user_id}: {e}")
 
-threading.Thread(target=poll_loop, daemon=True).start()
+import sys
+print(f"[app] module loaded, pid={__import__('os').getpid()}", flush=True)
 
 # ── LINE Webhook ───────────────────────────────────────────
 @app.route("/webhook", methods=["POST"])
