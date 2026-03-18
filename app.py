@@ -93,10 +93,12 @@ def poll_loop():
                             .order("hand_num", desc=True)
                             .limit(1).execute()).data
                 if not latest:
+                    print(f"[Poll] {table_id} 查無資料，跳過")
                     continue
                 row      = latest[0]
                 cur_shoe = row["shoe"]
                 cur_hand = row["hand_num"]
+                print(f"[Poll] {table_id} shoe={cur_shoe} hand={cur_hand} last_shoe={last_shoe} last_hand={last_hand}")
 
                 # 新靴偵測
                 if last_shoe is not None and cur_shoe != last_shoe:
@@ -113,9 +115,11 @@ def poll_loop():
                         following[user_id]["last_shoe"] = cur_shoe
                         following[user_id]["last_hand"] = cur_hand
                     table_num = table_id.replace("BAG","").lstrip("0")
+                    print(f"[Poll] 首次連線 {table_id}，push 確認訊息給 {user_id}")
                     push_text(user_id,
                         f"✅ 已開始跟隨第{table_num}廳\n"
                         f"目前靴{cur_shoe} 第{cur_hand}手，等待下一手...")
+                    print(f"[Poll] push 完成")
                     continue
 
                 # 有新手
