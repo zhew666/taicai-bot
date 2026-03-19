@@ -43,6 +43,7 @@ following    = {}   # user_id → {table_id, last_shoe, last_hand}
 airdrop      = {}   # user_id → {expire_at, notified: {table_id: last_hand}}
 follow_lock  = threading.Lock()
 airdrop_lock = threading.Lock()
+maintenance_mode = False   # 維護模式：True 時只回覆維護訊息
 _cooldown    = {}   # user_id → last_cmd_time
 COOLDOWN_SEC = 5
 
@@ -528,12 +529,29 @@ def handle_message(event):
             "延長 <user_id或REF碼> <天數>\n"
             "→ 延長使用期限\n\n"
             "管理員指令\n"
-            "→ 顯示本列表"
+            "→ 顯示本列表\n\n"
+            "維護開 / 維護關\n"
+            "→ 開關維護模式"
         ); return
+    if text == "維護開":
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        global maintenance_mode
+        maintenance_mode = True
+        reply_text(token, "🔧 維護模式已開啟，用戶指令暫停回應"); return
+    if text == "維護關":
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        maintenance_mode = False
+        reply_text(token, "✅ 維護模式已關閉，恢復正常"); return
     if text.startswith("開通"):
         cmd_admin_activate(user_id, token, text); return
     if text.startswith("延長"):
         cmd_admin_extend(user_id, token, text); return
+
+    # 維護模式：非管理員一律回維護訊息
+    if maintenance_mode:
+        reply_text(token, "🔧 系統維護中，請稍後再試"); return
 
     if not check_cooldown(user_id):
         return  # 冷卻中，直接忽略
