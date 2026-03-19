@@ -84,12 +84,25 @@ def ensure_poll_running():
 def tnum(table_id: str) -> str:
     return table_id.replace("BAG", "").lstrip("0") or table_id
 
+_CN_NUM = {"一":1,"二":2,"三":3,"四":4,"五":5,"六":6,"七":7,
+            "八":8,"九":9,"十":10,"十一":11,"十二":12,"十三":13}
+
 def normalize_table(text: str):
-    t = text.strip().replace("廳", "").replace("第", "")
+    t = text.strip()
+    # 去掉常見多餘字
+    for c in ("廳","號","桌","台","第","厅"):
+        t = t.replace(c, "")
+    t = t.strip()
     if t.upper() in ("3A", "03A"):
         return "BAG03A"
     if t.isdigit():
-        return f"BAG{int(t):02d}"
+        n = int(t)
+        if 1 <= n <= 13:
+            return f"BAG{n:02d}"
+        return None
+    # 中文數字
+    if t in _CN_NUM:
+        return f"BAG{_CN_NUM[t]:02d}"
     t = t.upper()
     if t.startswith("BAG"):
         return t
@@ -251,10 +264,14 @@ def cmd_guide(user_id, token, member):
     hand  = best_row["hand_num"]
     dealer = best_row.get("dealer") or ""
     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
+    next_hand = hand + 1
     if best_val > 0:
-        msg = f"🧙 仙人指路 第{t}廳{d_str}\n第{hand}手\n{label} EV={best_val:+.4f} ✅"
+        msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
+               f"第{next_hand}手 {label} EV={best_val:+.4f} ✅\n"
+               f"（即時數據，實際手數可能略有偏移）")
     else:
-        msg = f"🧙 仙人指路\n目前無正EV選項，最接近：\n第{t}廳{d_str}\n第{hand}手\n{label} EV={best_val:+.4f}"
+        msg = (f"🧙 仙人指路\n目前無正EV選項，最接近：\n"
+               f"第{t}廳{d_str}\n第{next_hand}手\n{label} EV={best_val:+.4f}")
     reply_text(token, msg)
 
 def cmd_my_code(user_id, token, member):
@@ -283,10 +300,18 @@ def cmd_intro(user_id, token, member):
         exp_str = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
         remaining = exp_dt - datetime.now(timezone.utc)
         mins = int(remaining.total_seconds() / 60)
-        if mins > 0:
-            status = f"⏳ 試用中，剩餘約 {mins} 分鐘（到期：{exp_str}）"
+        days = mins // 1440
+        hours = (mins % 1440) // 60
+        if mins <= 0:
+            status = "⏰ 試用已結束"
+        elif days >= 7:
+            status = f"✅ 使用期限至 {exp_str}（剩餘約 {days} 天）"
+        elif days >= 1:
+            status = f"⏳ 剩餘約 {days} 天（到期：{exp_str}）"
+        elif hours >= 1:
+            status = f"⏳ 試用中，剩餘約 {hours} 小時（到期：{exp_str}）"
         else:
-            status = f"⏰ 試用已結束"
+            status = f"⏳ 試用中，剩餘約 {mins} 分鐘（到期：{exp_str}）"
     else:
         status = "⏰ 試用已結束"
 
@@ -574,6 +599,39 @@ def cmd_migrate(user_id, token, text, member):
         f"━━━━━━━━━━━━━━\n"
         f"所有功能已開放，輸入「說明」查看指令。")
 
+def cmd_ev_intro(user_id, token):
+    reply_text(token,
+        "📊 什麼是 EV（期望值）？\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "EV = Expected Value，\n"
+        "代表每一注的長期平均報酬。\n\n"
+        "EV > 0 → 這注長期有利可圖\n"
+        "EV < 0 → 這注長期會虧\n\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "百家樂通常莊閒 EV 都是負的，\n"
+        "但隨著牌靴消耗，偶爾會出現\n"
+        "EV 翻正的瞬間 — 這就是出手時機。\n\n"
+        "百家之眼替你即時計算每張桌的 EV，\n"
+        "在正EV出現時第一時間通知你。\n\n"
+        "想了解計算原理？輸入「算牌介紹」")
+
+def cmd_card_intro(user_id, token):
+    reply_text(token,
+        "🃏 百家之眼怎麼算？\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "百家樂用 8 副牌（416 張），\n"
+        "每發一手牌，剩餘牌組就會改變。\n\n"
+        "我們的系統：\n"
+        "1️⃣ 即時記錄已出的每一張牌\n"
+        "2️⃣ 根據剩餘牌組，窮舉所有可能\n"
+        "3️⃣ 計算莊/閒/和/超六/對子的EV\n\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "跟 21 點算牌同理：\n"
+        "已出的牌會影響後續的機率分佈。\n\n"
+        "差別是我們用電腦完整計算，\n"
+        "不是靠人腦估算。\n\n"
+        "想了解 EV 是什麼？輸入「EV介紹」")
+
 # ── Webhook ──────────────────────────────────────────────
 @app.route("/webhook", methods=["POST"])
 def callback():
@@ -640,33 +698,84 @@ def handle_message(event):
     if is_maintenance():
         return
 
-    if not check_cooldown(user_id):
-        return  # 冷卻中，直接忽略
+    # 新用戶歡迎訊息（不吃 CD）
+    if not member.get("welcomed"):
+        try:
+            sb().table("members").update({"welcomed": True}).eq("user_id", user_id).execute()
+            reply_text(token,
+                "歡迎來到百家之眼\n\n"
+                "我們即時監控 13 張百家樂桌台，\n"
+                "幫你找出最有利的出手時機。\n\n"
+                "簡單說：你不用自己盯盤，\n"
+                "有機會的時候我們會通知你。\n\n"
+                "━━━━━━━━━━━━━━\n\n"
+                "🪂 全廳掃描（輸入：空投）\n"
+                "→ 自動盯全部桌台，有機會立刻通知\n\n"
+                "👁 鎖定跟蹤（輸入：跟隨 X廳）\n"
+                "→ 鎖定某張桌，每手即時推送\n\n"
+                "🧙 仙人指路\n"
+                "→ 一鍵查詢現在哪張桌最值得關注\n\n"
+                "不知道從哪開始？直接輸入「仙人指路」\n\n"
+                "━━━━━━━━━━━━━━\n\n"
+                "想了解更多？\n"
+                "📊 輸入「EV介紹」→ EV是什麼？\n"
+                "🃏 輸入「算牌介紹」→ 我們怎麼計算？\n"
+                "📋 輸入「說明」→ 完整指令列表\n\n"
+                "💡 所有指令送出後，請稍等 5 秒再進行操作")
+            return
+        except Exception as e:
+            print(f"[Welcome] 更新 welcomed 失敗: {e}", flush=True)
 
+    # 指令匹配（寬鬆化）
+    txt_lower = text.lower()
+
+    # ── 不需要 CD 的指令（純文字 / 輕量查詢）──
     if text == "介紹" or "全廳掃描" in text:
-        cmd_intro(user_id, token, member)
-    elif text.startswith("跟隨"):
-        cmd_follow(user_id, token, text, member)
+        cmd_intro(user_id, token, member); return
+    if txt_lower in ("ev介紹", "ev介绍", "ev 介紹", "ev 介绍"):
+        cmd_ev_intro(user_id, token); return
+    if text in ("算牌介紹", "算牌介绍"):
+        cmd_card_intro(user_id, token); return
+    if text in ("我的推薦碼", "推薦碼", "我的推荐码", "推荐码"):
+        cmd_my_code(user_id, token, member); return
+    if text in ("說明", "说明", "help", "指令", "Help", "HELP"):
+        reply_text(token,
+            "🃏 百家之眼 指令說明\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "🪂 空投 X\n"
+            "→ 開啟全廳掃描 X 小時（1~3），\n"
+            "　任一桌出現正EV立刻通知\n\n"
+            "👁 跟隨 X廳\n"
+            "→ 鎖定某張桌即時跟蹤，\n"
+            "　每手推送牌面+EV\n\n"
+            "🧙 仙人指路\n"
+            "→ 一鍵查詢全廳最高EV桌台\n\n"
+            "🛑 停止\n"
+            "→ 停止跟隨/空投\n\n"
+            "━━━━━━━━━━━━━━\n\n"
+            "📋 我的推薦碼 → 查推薦碼與期限\n"
+            "🎁 好友推薦碼 REF-XXXX → 輸入推薦碼\n"
+            "📊 EV介紹 → EV期望值是什麼？\n"
+            "🃏 算牌介紹 → 我們怎麼計算？\n"
+            "📖 介紹 → 帳號狀態與說明\n\n"
+            "💡 所有指令送出後，請稍等 5 秒再進行操作")
+        return
+
+    # ── 需要 CD 的指令（查全廳 / 寫入狀態）──
+    if not check_cooldown(user_id):
+        return
+
+    if any(text.startswith(k) for k in ("跟隨","跟随","追隨","追蹤","監控")):
+        body = text[2:].strip()
+        cmd_follow(user_id, token, "跟隨" + body, member)
     elif text.startswith("空投") or text.startswith("開始空投"):
         cmd_airdrop(user_id, token, text, member)
-    elif text in ("停止", "結束", "stop"):
+    elif text in ("停止", "結束", "stop", "Stop", "STOP"):
         cmd_stop(user_id, token)
-    elif text == "仙人指路":
+    elif "仙人指路" in text:
         cmd_guide(user_id, token, member)
-    elif text in ("我的推薦碼", "推薦碼"):
-        cmd_my_code(user_id, token, member)
-    elif text.startswith("好友推薦碼"):
+    elif text.startswith("好友推薦碼") or text.startswith("好友推荐码"):
         cmd_enter_code(user_id, token, text, member)
-    elif text in ("說明", "help", "指令", "Help", "HELP"):
-        reply_text(token,
-            "🃏 百家之眼 指令\n"
-            "━━━━━━━━━━━━━━\n"
-            "跟隨 X廳　→ 即時牌面推送\n"
-            "空投 X　　→ X小時正EV通知(1~3)\n"
-            "仙人指路　→ 查詢當前最高EV\n"
-            "停止　　　→ 停止監控\n"
-            "我的推薦碼 → 查詢推薦碼與期限\n"
-            "好友推薦碼 : REF-XXXX → 輸入好友推薦碼")
 
 # ── 背景輪詢 ──────────────────────────────────────────────
 def poll_loop():
@@ -776,7 +885,8 @@ def _poll_airdrop(latest_hands: dict):
                 if pos:
                     dealer = row.get("dealer") or ""
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
-                    lines = [f"🪂 +EV空投 第{tnum(tid)}廳{d_str}", f"第{cur_hand}手"]
+                    next_hand = cur_hand + 1
+                    lines = [f"🪂 +EV空投 第{tnum(tid)}廳{d_str}", f"第{next_hand}手"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
                         lines.append(f"{label}EV：{val:+.4f} ✅")
                     push_text(user_id, "\n".join(lines))
