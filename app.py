@@ -695,7 +695,7 @@ def handle_message(event):
         cmd_migrate(user_id, token, text, member); return
 
     # 維護模式：非管理員直接不回應（LINE 自動回覆處理）
-    if is_maintenance():
+    if is_maintenance() and not is_admin(user_id):
         return
 
     # 新用戶歡迎訊息（不吃 CD）
