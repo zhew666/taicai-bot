@@ -117,18 +117,9 @@ def get_latest_hand(table_id: str):
     return r.data[0] if r.data else None
 
 def get_all_latest_hands() -> dict:
-    """一次 query 取得所有桌台最新一手，回傳 {table_id: row}"""
-    rows = (sb().table("baccarat_hands").select("*")
-              .in_("table_id", ALL_TABLES)
-              .order("shoe", desc=True)
-              .order("hand_num", desc=True)
-              .limit(100).execute()).data
-    latest = {}
-    for row in rows:
-        tid = row["table_id"]
-        if tid not in latest:
-            latest[tid] = row
-    return latest
+    """查 latest_hands View 取得每桌最新一手，回傳 {table_id: row}"""
+    rows = sb().table("latest_hands").select("*").execute().data
+    return {row["table_id"]: row for row in rows}
 
 def format_hand(row: dict) -> str:
     """回傳單則訊息：EV在前（置頂通知可見莊閒），牌面結果在後"""
@@ -326,6 +317,18 @@ def cmd_admin_activate(user_id, token, text):
 
     # 開通正式會員
     sb().table("members").update({"is_member": True, "expire_at": None}).eq("user_id", target_uid).execute()
+    # 記錄轉換事件
+    try:
+        sb().table("referral_events").insert({
+            "referee_id": target_uid,
+            "referrer_id": target_member.get("referred_by"),
+            "code_used": target_member.get("referral_code", ""),
+            "code_type": "activation",
+            "event_type": "converted_paid",
+            "bonus_given_hours": 0,
+        }).execute()
+    except Exception as e:
+        print(f"[Admin] 記錄轉換事件失敗: {e}", flush=True)
     reply_text(token, f"✅ 已開通正式會員：{target_uid}")
 
     # 通知被開通者
@@ -344,6 +347,18 @@ def cmd_admin_activate(user_id, token, text):
                 base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
                 new_exp = (base + timedelta(days=7)).isoformat()
                 sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer_uid).execute()
+                # 記錄推薦人獎勵事件
+                try:
+                    sb().table("referral_events").insert({
+                        "referrer_id": referrer_uid,
+                        "referee_id": target_uid,
+                        "code_used": target_member.get("referral_code", ""),
+                        "code_type": "referral",
+                        "event_type": "referral_bonus",
+                        "bonus_given_hours": 168,
+                    }).execute()
+                except Exception as e:
+                    print(f"[Admin] 記錄推薦獎勵事件失敗: {e}", flush=True)
                 push_text(referrer_uid, "🎉 你推薦的好友完成正式註冊，使用期限 +7 天！")
                 reply_text(token, f"✅ 推薦人 {referrer_uid} 已 +7 天")
         except Exception as e:
@@ -383,27 +398,50 @@ def cmd_admin_extend(user_id, token, text):
         push_text(uid, f"🎉 你的使用期限已延長 {days} 天！新到期時間：{new_exp_tw}")
     except: pass
 
-PROMO_CODES = {
-    "evpro":   timedelta(days=1),
-    "chen972": timedelta(days=1),
-}
+def get_promo_code(code_str: str):
+    """從 DB 查詢活動碼，回傳 row dict 或 None"""
+    r = (sb().table("promo_codes").select("*")
+           .eq("code", code_str.lower())
+           .eq("is_active", True)
+           .execute())
+    if not r.data:
+        return None
+    row = r.data[0]
+    if row.get("max_uses") and row.get("used_count", 0) >= row["max_uses"]:
+        return None
+    return row
 
 def cmd_enter_code(user_id, token, text, member):
     import re
-    # 特殊活動碼（不限格式，直接比對）
+    # 活動碼（從 DB 查詢）
     raw = text.replace("好友推薦碼", "").replace("推薦碼", "").strip().lower().strip(":")
-    if raw in PROMO_CODES:
+    promo = get_promo_code(raw)
+    if promo:
         if member.get("referred_by"):
             reply_text(token, "你已經使用過推薦碼了"); return
-        bonus = PROMO_CODES[raw]
+        bonus_hours = promo["bonus_hours"]
         exp = member.get("expire_at")
         base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
-        new_exp = (base + bonus).isoformat()
+        new_exp = (base + timedelta(hours=bonus_hours)).isoformat()
         sb().table("members").update({
             "referred_by": f"PROMO_{raw.upper()}",
             "expire_at": new_exp
         }).eq("user_id", user_id).execute()
-        reply_text(token, f"✅ 活動碼兌換成功！使用期限 +{bonus.days} 天 🎁"); return
+        # 更新使用次數
+        sb().table("promo_codes").update({
+            "used_count": promo.get("used_count", 0) + 1
+        }).eq("code", raw).execute()
+        # 記錄推薦事件
+        sb().table("referral_events").insert({
+            "referee_id": user_id,
+            "code_used": raw,
+            "code_type": promo.get("type", "promo"),
+            "event_type": "used_promo",
+            "bonus_given_hours": bonus_hours,
+        }).execute()
+        days = bonus_hours // 24
+        label = f"+{days} 天" if bonus_hours >= 24 else f"+{bonus_hours} 小時"
+        reply_text(token, f"✅ 活動碼兌換成功！使用期限 {label} 🎁"); return
 
     m = re.search(r'(REF-[A-Z0-9]{4,6})', text.upper())
     if not m:
@@ -433,6 +471,15 @@ def cmd_enter_code(user_id, token, text, member):
     base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
     new_exp = (base + timedelta(days=1)).isoformat()
     sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer["user_id"]).execute()
+    # 記錄推薦事件
+    sb().table("referral_events").insert({
+        "referrer_id": referrer["user_id"],
+        "referee_id": user_id,
+        "code_used": code,
+        "code_type": "referral",
+        "event_type": "trial_started",
+        "bonus_given_hours": 24,
+    }).execute()
     reply_text(token, "✅ 推薦碼輸入成功！試用時間已延長至 6 小時 🎁")
     try:
         push_text(referrer["user_id"], "🎉 有好友使用你的推薦碼，使用期限 +1 天！")
@@ -593,6 +640,15 @@ def _poll_airdrop(latest_hands: dict):
     now = datetime.now(timezone.utc)
     with airdrop_lock:
         users = dict(airdrop)
+    if not users:
+        return
+    # 獨立查 positive_ev_now View，只取有正 EV 的桌
+    try:
+        pos_rows = sb().table("positive_ev_now").select("*").execute().data
+        pos_hands = {row["table_id"]: row for row in pos_rows}
+    except Exception as e:
+        print(f"[Airdrop] 查 positive_ev_now 失敗: {e}", flush=True)
+        pos_hands = {}
     for user_id, state in users.items():
         try:
             if now > state["expire_at"]:
@@ -600,7 +656,7 @@ def _poll_airdrop(latest_hands: dict):
                 with airdrop_lock:
                     airdrop.pop(user_id, None)
                 continue
-            for tid, row in latest_hands.items():
+            for tid, row in pos_hands.items():
                 cur_hand = row["hand_num"]
                 if cur_hand <= state["notified"].get(tid, 0):
                     continue
