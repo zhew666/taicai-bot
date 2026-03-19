@@ -25,7 +25,7 @@ ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
 ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
 TRIAL_HOURS    = 1
 WARN_MINUTES   = 15
-ALL_TABLES   = [f"BAG{i:02d}" for i in range(1, 14)]
+ALL_TABLES   = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A"]
 EV_FIELDS    = ["ev_banker", "ev_player", "ev_super6", "ev_pair_p", "ev_pair_b", "ev_tie"]
 EV_LABELS    = {"ev_banker": "莊", "ev_player": "閒", "ev_tie": "和",
                 "ev_super6": "超六", "ev_pair_p": "閒對", "ev_pair_b": "莊對"}
@@ -107,6 +107,20 @@ def get_latest_hand(table_id: str):
            .order("shoe", desc=True).order("hand_num", desc=True)
            .limit(1).execute())
     return r.data[0] if r.data else None
+
+def get_all_latest_hands() -> dict:
+    """一次 query 取得所有桌台最新一手，回傳 {table_id: row}"""
+    rows = (sb.table("baccarat_hands").select("*")
+              .in_("table_id", ALL_TABLES)
+              .order("shoe", desc=True)
+              .order("hand_num", desc=True)
+              .limit(100).execute()).data
+    latest = {}
+    for row in rows:
+        tid = row["table_id"]
+        if tid not in latest:
+            latest[tid] = row
+    return latest
 
 def format_hand(row: dict) -> str:
     """回傳單則訊息：EV在前（置頂通知可見莊閒），牌面結果在後"""
@@ -214,9 +228,7 @@ def cmd_guide(user_id, token, member):
     if not is_allowed(member):
         expired_reply(token, member); return
     best_row, best_field, best_val = None, None, -999
-    for tid in ALL_TABLES:
-        row = get_latest_hand(tid)
-        if not row: continue
+    for tid, row in get_all_latest_hands().items():
         for f in EV_FIELDS:
             v = row.get(f)
             if v is not None and v > best_val:
@@ -501,12 +513,8 @@ def poll_loop():
     while True:
         time.sleep(5)
         try:
-            # 一次抓所有桌台最新手，供 following & airdrop 共用
-            latest_hands = {}
-            for tid in ALL_TABLES:
-                row = get_latest_hand(tid)
-                if row:
-                    latest_hands[tid] = row
+            # 一次 query 取得所有桌台最新手，供 following & airdrop 共用
+            latest_hands = get_all_latest_hands()
         except Exception as e:
             print(f"[Poll] 取手牌失敗: {e}", flush=True)
             continue
