@@ -76,14 +76,30 @@ def normalize_table(text: str):
     return None
 
 def push_text(user_id: str, text: str):
-    with ApiClient(config) as api:
-        MessagingApi(api).push_message(
-            PushMessageRequest(to=user_id, messages=[TextMessage(text=text)]))
+    for attempt in range(3):
+        try:
+            with ApiClient(config) as api:
+                MessagingApi(api).push_message(
+                    PushMessageRequest(to=user_id, messages=[TextMessage(text=text)]))
+            return
+        except Exception as e:
+            if attempt == 2:
+                print(f"[push_text] 失敗 3 次放棄: {e}", flush=True)
+            else:
+                time.sleep(1)
 
 def reply_text(token: str, text: str):
-    with ApiClient(config) as api:
-        MessagingApi(api).reply_message(
-            ReplyMessageRequest(reply_token=token, messages=[TextMessage(text=text)]))
+    for attempt in range(3):
+        try:
+            with ApiClient(config) as api:
+                MessagingApi(api).reply_message(
+                    ReplyMessageRequest(reply_token=token, messages=[TextMessage(text=text)]))
+            return
+        except Exception as e:
+            if attempt == 2:
+                print(f"[reply_text] 失敗 3 次放棄: {e}", flush=True)
+            else:
+                time.sleep(1)
 
 def get_latest_hand(table_id: str):
     r = (sb.table("baccarat_hands").select("*")
@@ -413,6 +429,8 @@ def callback():
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
+    except Exception as e:
+        print(f"[Webhook] 未預期錯誤: {e}", flush=True)
     return "OK"
 
 @handler.add(MessageEvent, message=TextMessageContent)
@@ -429,6 +447,20 @@ def handle_message(event):
         reply_text(token, "系統暫時忙碌，請稍後再試")
         return
 
+    if text == "管理員指令":
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無管理員權限"); return
+        reply_text(token,
+            "🔧 管理員指令列表\n"
+            "────────────────\n"
+            "開通 REF-XXXX\n"
+            "開通 <user_id>\n"
+            "→ 升級為正式會員（永久）\n\n"
+            "延長 <user_id或REF碼> <天數>\n"
+            "→ 延長使用期限\n\n"
+            "管理員指令\n"
+            "→ 顯示本列表"
+        ); return
     if text.startswith("開通"):
         cmd_admin_activate(user_id, token, text); return
     if text.startswith("延長"):
