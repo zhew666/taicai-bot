@@ -356,11 +356,31 @@ def cmd_admin_extend(user_id, token, text):
         push_text(uid, f"🎉 你的使用期限已延長 {days} 天！新到期時間：{new_exp_tw}")
     except: pass
 
+PROMO_CODES = {
+    "evpro":   timedelta(days=1),
+    "chen972": timedelta(days=1),
+}
+
 def cmd_enter_code(user_id, token, text, member):
     import re
+    # 特殊活動碼（不限格式，直接比對）
+    raw = text.replace("好友推薦碼", "").replace("推薦碼", "").strip().lower().strip(":")
+    if raw in PROMO_CODES:
+        if member.get("referred_by"):
+            reply_text(token, "你已經使用過推薦碼了"); return
+        bonus = PROMO_CODES[raw]
+        exp = member.get("expire_at")
+        base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
+        new_exp = (base + bonus).isoformat()
+        sb.table("members").update({
+            "referred_by": f"PROMO_{raw.upper()}",
+            "expire_at": new_exp
+        }).eq("user_id", user_id).execute()
+        reply_text(token, f"✅ 活動碼兌換成功！使用期限 +{bonus.days} 天 🎁"); return
+
     m = re.search(r'(REF-[A-Z0-9]{4,6})', text.upper())
     if not m:
-        reply_text(token, "格式：推薦碼 REF-XXXX"); return
+        reply_text(token, "格式：好友推薦碼 REF-XXXX"); return
     code = m.group(1)
     if member.get("referred_by"):
         reply_text(token, "你已經輸入過推薦碼了"); return
