@@ -137,8 +137,6 @@ def format_hand(row: dict) -> str:
     tid    = tnum(row['table_id'])
     shoe   = row['shoe']
     hand   = row['hand_num']
-    dealer = row.get("dealer", "")
-
     def ev_str(val):
         if val is None: return "N/A"
         star = " ✅" if val > 0 else ""
@@ -154,7 +152,7 @@ def format_hand(row: dict) -> str:
         f"  對子：{ev_str(pair_ev)}",
         f"  和：{ev_str(row.get('ev_tie'))}",
         f"──────────",
-        f"第{hand}手結果｜荷官：{dealer}",
+        f"第{hand}手結果",
         f"閒牌：{p}",
         f"莊牌：{b}",
     ])
@@ -573,7 +571,7 @@ def _poll_following(latest_hands: dict):
                         following[user_id]["last_shoe"] = cur_shoe
                         following[user_id]["last_hand"] = cur_hand
                 print(f"[Follow] 首次連線，push 確認給 {user_id}", flush=True)
-                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳｜荷官：{row.get('dealer','')}")
+                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳")
                 push_text(user_id, format_hand(row))
                 print(f"[Follow] push 完成", flush=True)
                 continue
@@ -611,9 +609,7 @@ def _poll_airdrop(latest_hands: dict):
                         airdrop[user_id]["notified"][tid] = cur_hand
                 pos = [(EV_LABELS[f], row[f]) for f in EV_FIELDS if row.get(f) and row[f] > 0]
                 if pos:
-                    dealer = row.get("dealer", "")
-                    dealer_str = f" 荷官：{dealer} |" if dealer else ""
-                    lines = [f"🪂 +EV空投", f"第{tnum(tid)}廳{dealer_str} 第{cur_hand}手"]
+                    lines = [f"🪂 +EV空投", f"第{tnum(tid)}廳 第{cur_hand}手"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
                         lines.append(f"{label}：{val:+.4f} ✅")
                     push_text(user_id, "\n".join(lines))
