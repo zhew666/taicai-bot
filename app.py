@@ -92,13 +92,14 @@ def get_latest_hand(table_id: str):
            .limit(1).execute())
     return r.data[0] if r.data else None
 
-def format_hand(row: dict) -> tuple:
-    """回傳 (ev_msg, result_msg) 兩則訊息"""
+def format_hand(row: dict) -> str:
+    """回傳單則訊息：EV在前（置頂通知可見莊閒），牌面結果在後"""
     p = " ".join(str(row.get(f"p{i}","-")) for i in range(1,4) if row.get(f"p{i}"))
     b = " ".join(str(row.get(f"b{i}","-")) for i in range(1,4) if row.get(f"b{i}"))
-    tid   = tnum(row['table_id'])
-    shoe  = row['shoe']
-    hand  = row['hand_num']
+    tid    = tnum(row['table_id'])
+    shoe   = row['shoe']
+    hand   = row['hand_num']
+    dealer = row.get("dealer", "")
 
     def ev_str(val):
         if val is None: return "N/A"
@@ -108,25 +109,17 @@ def format_hand(row: dict) -> tuple:
     pair_ev = max(v for v in [row.get("ev_pair_p"), row.get("ev_pair_b")] if v is not None) \
               if any(row.get(f) is not None for f in ["ev_pair_p","ev_pair_b"]) else None
 
-    # 第一則：EV（手機通知第一、二行即可看到莊閒）
-    ev_msg = "\n".join([
+    return "\n".join([
         f"第{tid}廳｜靴{shoe} | 下一手EV",
         f"  莊：{ev_str(row.get('ev_banker'))}  閒：{ev_str(row.get('ev_player'))}",
         f"  超六：{ev_str(row.get('ev_super6'))}",
         f"  對子：{ev_str(pair_ev)}",
         f"  和：{ev_str(row.get('ev_tie'))}",
-    ])
-
-    # 第二則：牌面結果＋荷官
-    dealer = row.get("dealer", "")
-    result_msg = "\n".join([
-        f"第{tid}廳｜靴{shoe} 第{hand}手結果",
-        f"荷官：{dealer}",
+        f"──────────",
+        f"第{hand}手結果｜荷官：{dealer}",
         f"閒牌：{p}",
         f"莊牌：{b}",
     ])
-
-    return ev_msg, result_msg
 
 # ── 會員系統 ──────────────────────────────────────────────
 def gen_referral_code() -> str:
@@ -533,9 +526,7 @@ def _poll_following(latest_hands: dict):
                         following[user_id]["last_hand"] = cur_hand
                 print(f"[Follow] 首次連線，push 確認給 {user_id}", flush=True)
                 push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳｜荷官：{row.get('dealer','')}")
-                ev_msg, result_msg = format_hand(row)
-                push_text(user_id, ev_msg)
-                push_text(user_id, result_msg)
+                push_text(user_id, format_hand(row))
                 print(f"[Follow] push 完成", flush=True)
                 continue
 
@@ -544,9 +535,7 @@ def _poll_following(latest_hands: dict):
                               .eq("table_id", tid).eq("shoe", cur_shoe)
                               .gt("hand_num", last_hand).order("hand_num").execute()).data
                 for r in new_rows:
-                    ev_msg, result_msg = format_hand(r)
-                    push_text(user_id, ev_msg)
-                    push_text(user_id, result_msg)
+                    push_text(user_id, format_hand(r))
                 with follow_lock:
                     if user_id in following:
                         following[user_id]["last_shoe"] = cur_shoe
