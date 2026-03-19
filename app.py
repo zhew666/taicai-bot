@@ -66,6 +66,8 @@ def tnum(table_id: str) -> str:
 
 def normalize_table(text: str):
     t = text.strip().replace("廳", "").replace("第", "")
+    if t.upper() in ("3A", "03A"):
+        return "BAG03A"
     if t.isdigit():
         return f"BAG{int(t):02d}"
     t = t.upper()
