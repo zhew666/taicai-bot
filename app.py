@@ -251,14 +251,21 @@ def cmd_stop(user_id, token):
 def cmd_guide(user_id, token, member):
     if not is_allowed(member):
         expired_reply(token, member); return
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
+    try:
+        fresh_rows = sb().table("latest_hands").select("*").gte("created_at", cutoff).execute().data
+    except Exception:
+        fresh_rows = []
+    if not fresh_rows:
+        reply_text(token, "目前無即時數據，請稍後再試"); return
     best_row, best_field, best_val = None, None, -999
-    for tid, row in get_all_latest_hands().items():
+    for row in fresh_rows:
         for f in EV_FIELDS:
             v = row.get(f)
             if v is not None and v > best_val:
                 best_val, best_field, best_row = v, f, row
     if not best_row:
-        reply_text(token, "目前無法取得數據，請稍後再試"); return
+        reply_text(token, "目前無即時數據，請稍後再試"); return
     label = EV_LABELS.get(best_field, best_field)
     t     = tnum(best_row["table_id"])
     hand  = best_row["hand_num"]
