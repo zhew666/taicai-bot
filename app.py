@@ -18,7 +18,15 @@ from supabase import create_client
 app     = Flask(__name__)
 handler = WebhookHandler(os.environ["LINE_CHANNEL_SECRET"])
 config  = Configuration(access_token=os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
-sb      = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+_sb_url = os.environ["SUPABASE_URL"]
+_sb_key = os.environ["SUPABASE_KEY"]
+_thread_local = threading.local()
+
+def sb():
+    """每個 thread 使用獨立的 Supabase client，避免多 thread 共用同一 httpx socket"""
+    if not hasattr(_thread_local, 'client'):
+        _thread_local.client = create_client(_sb_url, _sb_key)
+    return _thread_local.client
 
 REGISTER_URL    = os.environ.get("REGISTER_URL", "（請洽管理員）")
 ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
@@ -102,7 +110,7 @@ def reply_text(token: str, text: str):
                 time.sleep(1)
 
 def get_latest_hand(table_id: str):
-    r = (sb.table("baccarat_hands").select("*")
+    r = (sb().table("baccarat_hands").select("*")
            .eq("table_id", table_id)
            .order("shoe", desc=True).order("hand_num", desc=True)
            .limit(1).execute())
@@ -110,7 +118,7 @@ def get_latest_hand(table_id: str):
 
 def get_all_latest_hands() -> dict:
     """一次 query 取得所有桌台最新一手，回傳 {table_id: row}"""
-    rows = (sb.table("baccarat_hands").select("*")
+    rows = (sb().table("baccarat_hands").select("*")
               .in_("table_id", ALL_TABLES)
               .order("shoe", desc=True)
               .order("hand_num", desc=True)
@@ -156,12 +164,12 @@ def gen_referral_code() -> str:
     chars = string.ascii_uppercase + string.digits
     for _ in range(20):
         code = "REF-" + "".join(random.choices(chars, k=4))
-        if not sb.table("members").select("user_id").eq("referral_code", code).execute().data:
+        if not sb().table("members").select("user_id").eq("referral_code", code).execute().data:
             return code
     return "REF-" + "".join(random.choices(chars, k=6))
 
 def get_or_create_member(user_id: str) -> dict:
-    r = sb.table("members").select("*").eq("user_id", user_id).execute()
+    r = sb().table("members").select("*").eq("user_id", user_id).execute()
     if r.data:
         return r.data[0]
     now = datetime.now(timezone.utc)
@@ -174,7 +182,7 @@ def get_or_create_member(user_id: str) -> dict:
         "referred_by":   None,
         "warned_15min":  False,
     }
-    sb.table("members").insert(member).execute()
+    sb().table("members").insert(member).execute()
     return member
 
 def is_allowed(member: dict) -> bool:
@@ -290,7 +298,7 @@ def is_admin(user_id: str) -> bool:
         return True
     if ADMIN_REF_CODE:
         codes = [c.strip().upper() for c in ADMIN_REF_CODE.split(",") if c.strip()]
-        r = sb.table("members").select("user_id").in_("referral_code", codes).execute()
+        r = sb().table("members").select("user_id").in_("referral_code", codes).execute()
         if any(row["user_id"] == user_id for row in (r.data or [])):
             return True
     return False
@@ -305,9 +313,9 @@ def cmd_admin_activate(user_id, token, text):
 
     # 查目標成員
     if target.upper().startswith("REF-"):
-        r = sb.table("members").select("*").eq("referral_code", target.upper()).execute()
+        r = sb().table("members").select("*").eq("referral_code", target.upper()).execute()
     else:
-        r = sb.table("members").select("*").eq("user_id", target).execute()
+        r = sb().table("members").select("*").eq("user_id", target).execute()
 
     if not r.data:
         reply_text(token, f"找不到成員：{target}"); return
@@ -319,7 +327,7 @@ def cmd_admin_activate(user_id, token, text):
         reply_text(token, f"⚠️ {target_uid} 已是正式會員"); return
 
     # 開通正式會員
-    sb.table("members").update({"is_member": True, "expire_at": None}).eq("user_id", target_uid).execute()
+    sb().table("members").update({"is_member": True, "expire_at": None}).eq("user_id", target_uid).execute()
     reply_text(token, f"✅ 已開通正式會員：{target_uid}")
 
     # 通知被開通者
@@ -332,12 +340,12 @@ def cmd_admin_activate(user_id, token, text):
     referrer_uid = target_member.get("referred_by")
     if referrer_uid:
         try:
-            rr = sb.table("members").select("expire_at").eq("user_id", referrer_uid).execute()
+            rr = sb().table("members").select("expire_at").eq("user_id", referrer_uid).execute()
             if rr.data:
                 exp = rr.data[0].get("expire_at")
                 base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
                 new_exp = (base + timedelta(days=7)).isoformat()
-                sb.table("members").update({"expire_at": new_exp}).eq("user_id", referrer_uid).execute()
+                sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer_uid).execute()
                 push_text(referrer_uid, "🎉 你推薦的好友完成正式註冊，使用期限 +7 天！")
                 reply_text(token, f"✅ 推薦人 {referrer_uid} 已 +7 天")
         except Exception as e:
@@ -357,9 +365,9 @@ def cmd_admin_extend(user_id, token, text):
         reply_text(token, "天數請輸入數字"); return
 
     if target.upper().startswith("REF-"):
-        r = sb.table("members").select("*").eq("referral_code", target.upper()).execute()
+        r = sb().table("members").select("*").eq("referral_code", target.upper()).execute()
     else:
-        r = sb.table("members").select("*").eq("user_id", target).execute()
+        r = sb().table("members").select("*").eq("user_id", target).execute()
 
     if not r.data:
         reply_text(token, f"找不到成員：{target}"); return
@@ -369,7 +377,7 @@ def cmd_admin_extend(user_id, token, text):
     exp = m.get("expire_at")
     base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
     new_exp = (base + timedelta(days=days)).isoformat()
-    sb.table("members").update({"expire_at": new_exp}).eq("user_id", uid).execute()
+    sb().table("members").update({"expire_at": new_exp}).eq("user_id", uid).execute()
 
     new_exp_tw = datetime.fromisoformat(new_exp).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
     reply_text(token, f"✅ {uid} 延長 {days} 天\n新到期：{new_exp_tw}")
@@ -393,7 +401,7 @@ def cmd_enter_code(user_id, token, text, member):
         exp = member.get("expire_at")
         base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
         new_exp = (base + bonus).isoformat()
-        sb.table("members").update({
+        sb().table("members").update({
             "referred_by": f"PROMO_{raw.upper()}",
             "expire_at": new_exp
         }).eq("user_id", user_id).execute()
@@ -405,7 +413,7 @@ def cmd_enter_code(user_id, token, text, member):
     code = m.group(1)
     if member.get("referred_by"):
         reply_text(token, "你已經輸入過推薦碼了"); return
-    r = sb.table("members").select("user_id,expire_at").eq("referral_code", code).execute()
+    r = sb().table("members").select("user_id,expire_at").eq("referral_code", code).execute()
     if not r.data:
         reply_text(token, "推薦碼無效，請確認後再試"); return
     referrer = r.data[0]
@@ -418,7 +426,7 @@ def cmd_enter_code(user_id, token, text, member):
         new_user_exp = (ts + timedelta(hours=6)).isoformat()
     else:
         new_user_exp = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
-    sb.table("members").update({
+    sb().table("members").update({
         "referred_by": referrer["user_id"],
         "expire_at": new_user_exp
     }).eq("user_id", user_id).execute()
@@ -426,7 +434,7 @@ def cmd_enter_code(user_id, token, text, member):
     exp = referrer["expire_at"]
     base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
     new_exp = (base + timedelta(days=1)).isoformat()
-    sb.table("members").update({"expire_at": new_exp}).eq("user_id", referrer["user_id"]).execute()
+    sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer["user_id"]).execute()
     reply_text(token, "✅ 推薦碼輸入成功！試用時間已延長至 6 小時 🎁")
     try:
         push_text(referrer["user_id"], "🎉 有好友使用你的推薦碼，使用期限 +1 天！")
@@ -571,7 +579,7 @@ def _poll_following(latest_hands: dict):
                 continue
 
             if cur_hand > last_hand:
-                new_rows = (sb.table("baccarat_hands").select("*")
+                new_rows = (sb().table("baccarat_hands").select("*")
                               .eq("table_id", tid).eq("shoe", cur_shoe)
                               .gt("hand_num", last_hand).order("hand_num").execute()).data
                 for r in new_rows:
@@ -616,7 +624,7 @@ def _poll_trial_warnings():
     now = datetime.now(timezone.utc)
     warn_threshold = now + timedelta(minutes=WARN_MINUTES)
     try:
-        r = (sb.table("members").select("user_id,expire_at,referral_code")
+        r = (sb().table("members").select("user_id,expire_at,referral_code")
                .eq("is_member", False).eq("warned_15min", False).execute())
         for m in (r.data or []):
             exp = m.get("expire_at")
@@ -630,7 +638,7 @@ def _poll_trial_warnings():
                         f"分享推薦碼給好友，每人使用 +1 天：\n"
                         f"📋 {code}\n\n"
                         f"正式註冊：{REGISTER_URL}")
-                    sb.table("members").update({"warned_15min": True}).eq("user_id", m["user_id"]).execute()
+                    sb().table("members").update({"warned_15min": True}).eq("user_id", m["user_id"]).execute()
                 except Exception as e:
                     print(f"[Trial Warn Error] {m['user_id']}: {e}", flush=True)
     except Exception as e:
