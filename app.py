@@ -136,14 +136,16 @@ def format_hand(row: dict) -> str:
     pair_ev = max(v for v in [row.get("ev_pair_p"), row.get("ev_pair_b")] if v is not None) \
               if any(row.get(f) is not None for f in ["ev_pair_p","ev_pair_b"]) else None
 
+    dealer = row.get("dealer") or ""
+    dealer_str = f"｜荷官：{dealer}" if dealer and dealer != "未知" else ""
+
     return "\n".join([
-        f"第{tid}廳｜靴{shoe} | 下一手EV",
+        f"第{tid}廳{dealer_str} | 下一手EV",
         f"  莊：{ev_str(row.get('ev_banker'))}  閒：{ev_str(row.get('ev_player'))}",
-        f"  超六：{ev_str(row.get('ev_super6'))}",
-        f"  對子：{ev_str(pair_ev)}",
+        f"  超六：{ev_str(row.get('ev_super6'))}  對子：{ev_str(pair_ev)}",
         f"  和：{ev_str(row.get('ev_tie'))}",
         f"──────────",
-        f"第{hand}手結果",
+        f"靴{shoe} | 第{hand}手結果",
         f"閒牌：{p}",
         f"莊牌：{b}",
     ])
@@ -235,10 +237,12 @@ def cmd_guide(user_id, token, member):
     label = EV_LABELS.get(best_field, best_field)
     t     = tnum(best_row["table_id"])
     hand  = best_row["hand_num"]
+    dealer = best_row.get("dealer") or ""
+    d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
     if best_val > 0:
-        msg = f"🧙 仙人指路\n第{t}廳 第{hand}手 ✅\n{label} EV={best_val:+.4f}"
+        msg = f"🧙 仙人指路 第{t}廳{d_str}\n第{hand}手\n{label} EV={best_val:+.4f} ✅"
     else:
-        msg = f"🧙 仙人指路\n目前無正EV選項，最接近：\n第{t}廳 第{hand}手\n{label} EV={best_val:+.4f}"
+        msg = f"🧙 仙人指路\n目前無正EV選項，最接近：\n第{t}廳{d_str}\n第{hand}手\n{label} EV={best_val:+.4f}"
     reply_text(token, msg)
 
 def cmd_my_code(user_id, token, member):
@@ -665,9 +669,11 @@ def _poll_airdrop(latest_hands: dict):
                         airdrop[user_id]["notified"][tid] = cur_hand
                 pos = [(EV_LABELS[f], row[f]) for f in EV_FIELDS if row.get(f) and row[f] > 0]
                 if pos:
-                    lines = [f"🪂 +EV空投", f"第{tnum(tid)}廳 第{cur_hand}手"]
+                    dealer = row.get("dealer") or ""
+                    d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
+                    lines = [f"🪂 +EV空投 第{tnum(tid)}廳{d_str}", f"第{cur_hand}手"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
-                        lines.append(f"{label}：{val:+.4f} ✅")
+                        lines.append(f"{label}EV：{val:+.4f} ✅")
                     push_text(user_id, "\n".join(lines))
         except Exception as e:
             print(f"[Airdrop Error] {user_id}: {e}", flush=True)
