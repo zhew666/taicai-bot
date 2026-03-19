@@ -43,8 +43,19 @@ following    = {}   # user_id → {table_id, last_shoe, last_hand}
 airdrop      = {}   # user_id → {expire_at, notified: {table_id: last_hand}}
 follow_lock  = threading.Lock()
 airdrop_lock = threading.Lock()
-maintenance_mode = False   # 維護模式：True 時只回覆維護訊息
 _cooldown    = {}   # user_id → last_cmd_time
+
+def is_maintenance() -> bool:
+    """從 DB 讀取維護模式狀態"""
+    try:
+        r = sb().table("system_config").select("value").eq("key", "maintenance_mode").execute()
+        return r.data[0]["value"] == "true" if r.data else False
+    except Exception:
+        return False
+
+def set_maintenance(on: bool):
+    """寫入維護模式狀態到 DB"""
+    sb().table("system_config").upsert({"key": "maintenance_mode", "value": "true" if on else "false"}).execute()
 COOLDOWN_SEC = 5
 
 def check_cooldown(user_id: str) -> bool:
@@ -536,22 +547,21 @@ def handle_message(event):
     if text == "維護開":
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
-        global maintenance_mode
-        maintenance_mode = True
+        set_maintenance(True)
         reply_text(token, "🔧 維護模式已開啟，用戶指令暫停回應"); return
     if text == "維護關":
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
-        maintenance_mode = False
+        set_maintenance(False)
         reply_text(token, "✅ 維護模式已關閉，恢復正常"); return
     if text.startswith("開通"):
         cmd_admin_activate(user_id, token, text); return
     if text.startswith("延長"):
         cmd_admin_extend(user_id, token, text); return
 
-    # 維護模式：非管理員一律回維護訊息
-    if maintenance_mode:
-        reply_text(token, "🔧 系統維護中，請稍後再試"); return
+    # 維護模式：非管理員直接不回應（LINE 自動回覆處理）
+    if is_maintenance():
+        return
 
     if not check_cooldown(user_id):
         return  # 冷卻中，直接忽略
