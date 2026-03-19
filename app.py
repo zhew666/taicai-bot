@@ -3,7 +3,7 @@
 百家之眼 LINE Bot Server
 功能：跟隨系統 / 空投系統 / 仙人指路 / 會員系統（試用+推薦碼）
 """
-import os, threading, time, random, string
+import os, threading, time, random, string, re
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
@@ -461,9 +461,11 @@ def get_promo_code(code_str: str):
 
 def cmd_enter_code(user_id, token, text, member):
     import re
-    # 活動碼（從 DB 查詢）
-    raw = text.replace("好友推薦碼", "").replace("推薦碼", "").strip().lower().strip(":")
-    promo = get_promo_code(raw)
+    # 清理輸入：去掉前綴、空格、冒號，取得純碼
+    raw = text.replace("好友推薦碼", "").replace("好友推荐码", "").replace("推薦碼", "").replace("推荐码", "").strip().strip(":").strip()
+    # 去掉 REF- 前綴後查活動碼
+    code_clean = re.sub(r'^REF-', '', raw, flags=re.IGNORECASE).strip()
+    promo = get_promo_code(code_clean)
     if promo:
         if member.get("referred_by"):
             reply_text(token, "你已經使用過推薦碼了"); return
@@ -472,17 +474,17 @@ def cmd_enter_code(user_id, token, text, member):
         base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
         new_exp = (base + timedelta(hours=bonus_hours)).isoformat()
         sb().table("members").update({
-            "referred_by": f"PROMO_{raw.upper()}",
+            "referred_by": f"PROMO_{code_clean.upper()}",
             "expire_at": new_exp
         }).eq("user_id", user_id).execute()
         # 更新使用次數
         sb().table("promo_codes").update({
             "used_count": promo.get("used_count", 0) + 1
-        }).eq("code", raw).execute()
+        }).eq("code", code_clean.lower()).execute()
         # 記錄推薦事件
         sb().table("referral_events").insert({
             "referee_id": user_id,
-            "code_used": raw,
+            "code_used": code_clean.lower(),
             "code_type": promo.get("type", "promo"),
             "event_type": "used_promo",
             "bonus_given_hours": bonus_hours,
@@ -491,16 +493,17 @@ def cmd_enter_code(user_id, token, text, member):
         label = f"+{days} 天" if bonus_hours >= 24 else f"+{bonus_hours} 小時"
         reply_text(token, f"✅ 活動碼兌換成功！使用期限 {label} 🎁"); return
 
-    m = re.search(r'(REF-[A-Z0-9]{4,6})', text.upper())
-    if not m:
-        reply_text(token, "格式：好友推薦碼 REF-XXXX"); return
-    code = m.group(1)
+    # 查推薦碼：自動補 REF- 前綴
+    code_upper = code_clean.upper()
+    if not code_upper.startswith("REF-"):
+        code_upper = "REF-" + code_upper
+    r_check = sb().table("members").select("user_id,expire_at").eq("referral_code", code_upper).execute()
+    if not r_check.data:
+        reply_text(token, "找不到這個碼，請確認後再試"); return
+    code = code_upper
     if member.get("referred_by"):
         reply_text(token, "你已經輸入過推薦碼了"); return
-    r = sb().table("members").select("user_id,expire_at").eq("referral_code", code).execute()
-    if not r.data:
-        reply_text(token, "推薦碼無效，請確認後再試"); return
-    referrer = r.data[0]
+    referrer = r_check.data[0]
     if referrer["user_id"] == user_id:
         reply_text(token, "不能輸入自己的推薦碼"); return
     # 更新被推薦人 + 試用延長到 6 小時
@@ -785,6 +788,9 @@ def handle_message(event):
     elif "仙人指路" in text:
         cmd_guide(user_id, token, member)
     elif text.startswith("好友推薦碼") or text.startswith("好友推荐码"):
+        cmd_enter_code(user_id, token, text, member)
+    elif re.match(r'^[A-Za-z0-9\-]{4,10}$', text):
+        # 4~10 碼英數字（含 REF-XXXX），自動當推薦碼/活動碼處理
         cmd_enter_code(user_id, token, text, member)
 
 # ── 背景輪詢 ──────────────────────────────────────────────
