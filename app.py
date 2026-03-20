@@ -45,6 +45,7 @@ follow_lock  = threading.Lock()
 airdrop_lock = threading.Lock()
 _cooldown    = {}   # user_id → last_cmd_time
 _pending_extend = {}  # agent_user_id → {target_ref, days, expire_ts}
+_poll_stats  = {"count": 0, "airdrop_triggers": 0, "last_trigger": None}  # poll 健康監控
 
 def is_maintenance() -> bool:
     """從 DB 讀取維護模式狀態"""
@@ -241,7 +242,14 @@ def cmd_follow(user_id, token, text, member):
         expired_reply(token, member); return
     tid = normalize_table(text[2:].strip())
     if not tid or tid not in ALL_TABLES:
-        reply_text(token, "格式：跟隨 X廳（1~13）"); return
+        reply_text(token,
+            "👁 請選擇要跟隨的廳號\n"
+            "━━━━━━━━━━━━━━\n"
+            "輸入：跟隨 X廳（1~13）\n\n"
+            "例如：\n"
+            "  跟隨 3廳 → 鎖定第3廳\n"
+            "  跟隨 7廳 → 鎖定第7廳\n\n"
+            "📡 支援場館：MT 13 廳"); return
     with follow_lock:
         following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0, "started_at": time.time()}
     reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳，稍等...")
@@ -255,8 +263,31 @@ def cmd_airdrop(user_id, token, text, member):
     hours = max(1, min(3, int(m.group(1)))) if m else 1
     exp = datetime.now(timezone.utc) + timedelta(hours=hours)
     with airdrop_lock:
-        airdrop[user_id] = {"expire_at": exp, "notified": {}}
-    reply_text(token, f"🪂 空投監控已開啟（{hours} 小時）\n偵測到任一廳正EV時立即通知")
+        airdrop[user_id] = {"expire_at": exp, "notified": {}, "last_status": None}
+
+    # 即時狀態快照
+    exp_tw = exp.astimezone(timezone(timedelta(hours=8))).strftime("%H:%M")
+    try:
+        fresh = sb().table("latest_hands").select("table_id," + ",".join(EV_FIELDS)).gte(
+            "created_at", (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
+        ).execute().data or []
+    except Exception:
+        fresh = []
+    active = len(fresh)
+    pos = sum(1 for r in fresh if any(r.get(f) and r[f] > 0 for f in EV_FIELDS))
+
+    lines = [
+        "🪂 空投監控已開啟",
+        "━━━━━━━━━━━━━━",
+        "",
+        f"監控廳數：{active} 廳",
+        f"目前正EV：{pos} 廳",
+        f"到期時間：{exp_tw}",
+        "",
+        "偵測到正EV時立即推播通知",
+        "每 30 分鐘自動回報監控狀態",
+    ]
+    reply_text(token, "\n".join(lines))
 
 def cmd_stop(user_id, token):
     removed = []
@@ -277,30 +308,58 @@ def cmd_guide(user_id, token, member):
         fresh_rows = []
     if not fresh_rows:
         reply_text(token, "目前無即時數據，請稍後再試"); return
-    best_row, best_field, best_val = None, None, -999
+
+    # 每桌最佳 EV
+    table_best = {}
     for row in fresh_rows:
+        best_f, best_v = None, -999
         for f in EV_FIELDS:
             v = row.get(f)
-            if v is not None and v > best_val:
-                best_val, best_field, best_row = v, f, row
-    if not best_row:
+            if v is not None and v > best_v:
+                best_v, best_f = v, f
+        if best_f:
+            table_best[row["table_id"]] = {"row": row, "field": best_f, "val": best_v}
+
+    if not table_best:
         reply_text(token, "目前無即時數據，請稍後再試"); return
-    label = EV_LABELS.get(best_field, best_field)
-    t     = tnum(best_row["table_id"])
-    hand  = best_row["hand_num"]
-    dealer = best_row.get("dealer") or ""
-    d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
-    next_hand = hand + 1
-    if best_val > 0:
-        msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
-               f"第{next_hand}手 {label} EV={best_val:+.4f} ✅\n"
-               f"正EV機會，可考慮出手")
+
+    # 排名 Top 3
+    ranked = sorted(table_best.values(), key=lambda x: -x["val"])[:2]
+    active_count = len(table_best)
+    pos_count = sum(1 for tb in table_best.values() if tb["val"] > 0)
+
+    lines = []
+
+    for i, tb in enumerate(ranked, 1):
+        row = tb["row"]
+        t = tnum(row["table_id"])
+        hand = row["hand_num"]
+        label = EV_LABELS.get(tb["field"], tb["field"])
+        val = tb["val"]
+        dealer = row.get("dealer") or ""
+        d_str = f"｜{dealer}" if dealer and dealer != "未知" else ""
+
+        if val > 0:
+            icon = "🟢"
+        elif val > -0.005:
+            icon = "🟡"
+        else:
+            icon = "🔴"
+
+        lines.append(f"{icon} #{i} 第{t}廳 第{hand+1}手{d_str}")
+        lines.append(f"{label} EV={val:+.4f}｜")
+        if i < len(ranked):
+            lines.append("")
+
+    lines.append("")
+    lines.append(f"📡 全廳概況：{active_count} 廳運行中｜")
+    lines.append("")
+    if pos_count > 0:
+        lines.append("💡 有正EV機會，開啟空投即時掌握")
     else:
-        msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
-               f"第{next_hand}手\n"
-               f"目前最佳選項：{label} EV={best_val:+.4f}\n"
-               f"靴牌進行中，持續監控")
-    reply_text(token, msg)
+        lines.append("💡 尚無正EV，建議開啟空投等待時機")
+
+    reply_text(token, "\n".join(lines))
 
 def cmd_my_code(user_id, token, member):
     code = member.get("referral_code", "N/A")
@@ -732,7 +791,11 @@ def cmd_ev_intro(user_id, token):
         "EV 翻正的瞬間 — 這就是出手時機。\n\n"
         "百家之眼替你即時計算每張桌的 EV，\n"
         "在正EV出現時第一時間通知你。\n\n"
-        "想了解計算原理？輸入「算牌介紹」")
+        "━━━━━━━━━━━━━━\n\n"
+        "如果還是難以理解，直接輸入「仙人指路」\n"
+        "系統會從十幾個遊戲廳中，\n"
+        "即時選出當下最佳的投注選項給你。\n"
+        "這是目前全網最強的百家樂輔助功能。")
 
 def cmd_card_intro(user_id, token):
     reply_text(token,
@@ -749,9 +812,25 @@ def cmd_card_intro(user_id, token):
         "已出的牌會影響後續的機率分佈。\n\n"
         "差別是我們用電腦完整計算，\n"
         "不是靠人腦估算。\n\n"
-        "想了解 EV 是什麼？輸入「EV介紹」")
+        "━━━━━━━━━━━━━━\n\n"
+        "如果還是難以理解，直接輸入「仙人指路」\n"
+        "系統會從十幾個遊戲廳中，\n"
+        "即時選出當下最佳的投注選項給你。\n"
+        "這是目前全網最強的百家樂輔助功能。")
 
 # ── Webhook ──────────────────────────────────────────────
+@app.route("/health")
+def health():
+    from flask import jsonify
+    return jsonify({
+        "status": "ok",
+        "poll_count": _poll_stats["count"],
+        "airdrop_triggers": _poll_stats["airdrop_triggers"],
+        "last_trigger": _poll_stats["last_trigger"],
+        "following_users": len(following),
+        "airdrop_users": len(airdrop),
+    })
+
 @app.route("/webhook", methods=["POST"])
 def callback():
     signature = request.headers.get("X-Line-Signature", "")
@@ -831,28 +910,13 @@ def handle_message(event):
         try:
             sb().table("members").update({"welcomed": True}).eq("user_id", user_id).execute()
             reply_text(token,
-                "歡迎來到百家之眼\n\n"
-                "我們即時追蹤 MT 13 張桌台，\n"
-                "幫你找出最有利的出手時機。\n\n"
-                "簡單說：你不用自己盯盤，\n"
-                "有機會的時候我們會通知你。\n\n"
+                "歡迎加入百家之眼\n"
                 "━━━━━━━━━━━━━━\n\n"
-                "🪂 全廳掃描（輸入：空投）\n"
-                "→ 自動盯全部桌台，有機會立刻通知\n\n"
-                "👁 鎖定跟蹤（輸入：跟隨 X廳）\n"
-                "→ 鎖定某張桌，每手即時推送\n\n"
-                "🧙 仙人指路\n"
-                "→ 一鍵查詢現在哪張桌最值得關注\n\n"
-                "不知道從哪開始？直接輸入「仙人指路」\n\n"
-                "━━━━━━━━━━━━━━\n\n"
-                "🎁 有推薦碼？輸入「好友推薦碼 REF-XXXX」\n"
-                "→ 立即延長試用時間\n\n"
-                "━━━━━━━━━━━━━━\n\n"
-                "想了解更多？\n"
-                "📊 輸入「EV介紹」→ EV是什麼？\n"
-                "🃏 輸入「算牌介紹」→ 我們怎麼計算？\n"
-                "📋 輸入「說明」→ 完整指令列表\n\n"
-                "💡 所有指令送出後，請稍等 5 秒再進行操作")
+                "即時監控 MT 全 13 廳，\n"
+                "當EV翻正時第一時間通知你出手。\n\n"
+                "👉 現在試試：點選單「仙人指路」\n"
+                "看看哪張桌目前最值得關注。\n\n"
+                "🎁 有推薦碼？輸入「好友推薦碼 REF-XXXX」")
             return
         except Exception as e:
             print(f"[Welcome] 更新 welcomed 失敗: {e}", flush=True)
@@ -998,6 +1062,13 @@ def _poll_airdrop(latest_hands: dict):
         users = dict(airdrop)
     if not users:
         return
+    # poll 計數 + 定期日誌
+    _poll_stats["count"] += 1
+    if _poll_stats["count"] % 100 == 0:
+        last = _poll_stats["last_trigger"] or "從未觸發"
+        print(f"[Airdrop Poll] {_poll_stats['count']} 次查詢, "
+              f"{_poll_stats['airdrop_triggers']} 次觸發, "
+              f"監控用戶: {len(users)}, 上次觸發: {last}", flush=True)
     # 獨立查 positive_ev_now View，只取有正 EV 的桌
     try:
         pos_rows = sb().table("positive_ev_now").select("*").execute().data
@@ -1005,6 +1076,7 @@ def _poll_airdrop(latest_hands: dict):
     except Exception as e:
         print(f"[Airdrop] 查 positive_ev_now 失敗: {e}", flush=True)
         pos_hands = {}
+    active_tables = len(latest_hands)
     for user_id, state in users.items():
         try:
             if now > state["expire_at"]:
@@ -1012,6 +1084,35 @@ def _poll_airdrop(latest_hands: dict):
                 with airdrop_lock:
                     airdrop.pop(user_id, None)
                 continue
+
+            # 30 分鐘定期狀態回報
+            last_status = state.get("last_status")
+            if last_status is None or (now - last_status).total_seconds() >= 1800:
+                with airdrop_lock:
+                    if user_id in airdrop:
+                        airdrop[user_id]["last_status"] = now
+                remain = state["expire_at"] - now
+                remain_min = max(0, int(remain.total_seconds() // 60))
+                pos_count = len(pos_hands)
+                exp_tw = state["expire_at"].astimezone(timezone(timedelta(hours=8))).strftime("%H:%M")
+                status_lines = [
+                    "🪂 空投狀態回報",
+                    "━━━━━━━━━━━━━━",
+                    f"監控廳數：{active_tables} 廳",
+                    f"目前正EV：{pos_count} 廳",
+                    f"剩餘時間：{remain_min} 分鐘（{exp_tw} 到期）",
+                ]
+                if pos_count > 0:
+                    status_lines.append("")
+                    for tid, row in pos_hands.items():
+                        pf = [(EV_LABELS[f], row[f]) for f in EV_FIELDS if row.get(f) and row[f] > 0]
+                        if pf:
+                            best = max(pf, key=lambda x: x[1])
+                            status_lines.append(f"  🟢 第{tnum(tid)}廳 {best[0]} {best[1]:+.4f}")
+                else:
+                    status_lines.append("\n暫無正EV，持續監控中")
+                push_text(user_id, "\n".join(status_lines))
+
             for tid, row in pos_hands.items():
                 cur_hand = row["hand_num"]
                 if cur_hand <= state["notified"].get(tid, 0):
@@ -1021,6 +1122,8 @@ def _poll_airdrop(latest_hands: dict):
                         airdrop[user_id]["notified"][tid] = cur_hand
                 pos = [(EV_LABELS[f], row[f]) for f in EV_FIELDS if row.get(f) and row[f] > 0]
                 if pos:
+                    _poll_stats["airdrop_triggers"] += 1
+                    _poll_stats["last_trigger"] = datetime.now(timezone.utc).strftime("%m/%d %H:%M")
                     dealer = row.get("dealer") or ""
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
                     next_hand = cur_hand + 1
