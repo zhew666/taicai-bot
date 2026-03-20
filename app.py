@@ -241,7 +241,13 @@ def cmd_follow(user_id, token, text, member):
     if not is_allowed(member):
         expired_reply(token, member); return
     tid = normalize_table(text[2:].strip())
+
+    # 沒帶廳號：如果正在跟隨就關閉，否則顯示引導
     if not tid or tid not in ALL_TABLES:
+        with follow_lock:
+            if user_id in following:
+                old_tid = following.pop(user_id)["table_id"]
+                reply_text(token, f"👁 已停止跟隨第{tnum(old_tid)}廳"); return
         reply_text(token,
             "👁 請選擇要跟隨的廳號\n"
             "━━━━━━━━━━━━━━\n"
@@ -250,6 +256,13 @@ def cmd_follow(user_id, token, text, member):
             "  跟隨 3廳 → 鎖定第3廳\n"
             "  跟隨 7廳 → 鎖定第7廳\n\n"
             "📡 支援場館：MT 13 廳"); return
+
+    # 已在跟隨同一廳 → 關閉
+    with follow_lock:
+        if user_id in following and following[user_id]["table_id"] == tid:
+            following.pop(user_id)
+            reply_text(token, f"👁 已停止跟隨第{tnum(tid)}廳"); return
+
     with follow_lock:
         following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0, "started_at": time.time()}
     reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳，稍等...")
@@ -258,6 +271,13 @@ def cmd_airdrop(user_id, token, text, member):
     member = activate_trial(user_id, member)
     if not is_allowed(member):
         expired_reply(token, member); return
+
+    # 開關機制：已開啟就關閉
+    with airdrop_lock:
+        if user_id in airdrop:
+            airdrop.pop(user_id)
+            reply_text(token, "🪂 空投監控已關閉"); return
+
     import re
     m = re.search(r'(\d+)', text)
     hours = max(1, min(3, int(m.group(1)))) if m else 1
@@ -381,7 +401,8 @@ def cmd_intro(user_id, token, member):
         f"🔗 你的專屬推薦碼：{code}\n"
         f"・每邀請 1 人試用 → +1 天\n"
         f"・好友完成正式註冊 → +7 天\n\n"
-        f"正式註冊：{REGISTER_URL}")
+        f"正式註冊：{REGISTER_URL}\n\n"
+        f"💡 輸入「指令」查詢更多功能")
 
 def get_agent(user_id: str):
     """查詢 agents 表，回傳 agent row 或 None"""
@@ -790,6 +811,47 @@ def cmd_card_intro(user_id, token):
         "即時選出當下最佳的投注選項給你。\n"
         "這是目前全網最強的百家樂輔助功能。")
 
+def cmd_feature_intro(user_id, token):
+    # 第一則：功能與使用方式
+    reply_text(token,
+        "百家之眼 ── 功能介紹\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "即時監控 MT 全 13 廳百家樂，\n"
+        "8 副牌完整追蹤，計算 6 種注區 EV：\n"
+        "莊 / 閒 / 和 / 超級六 / 閒對 / 莊對\n\n"
+        "▸ 仙人指路\n"
+        "  一鍵掃描全廳，列出目前最值得關注的投注。\n"
+        "  → 點選單「仙人指路」\n\n"
+        "▸ 空投掃描\n"
+        "  開啟後，正 EV 出現立刻推播通知你。\n"
+        "  → 點選單「空投掃描」\n\n"
+        "▸ 跟隨桌台\n"
+        "  鎖定單一廳口，即時推送每手牌面與 EV。\n"
+        "  → 輸入「跟隨 3廳」（1~13廳）\n\n"
+        "▸ EV 與算牌原理\n"
+        "  → 輸入「EV介紹」或「算牌介紹」\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "💡 不知道 EV 是什麼也沒關係，\n"
+        "先試「仙人指路」，看到正 EV 就是出手訊號。")
+    # 第二則：關於我們 + 推薦機制
+    push_text(user_id,
+        "關於百家之眼\n"
+        "━━━━━━━━━━━━━━\n\n"
+        "百家樂不是純運氣的遊戲。\n"
+        "8 副牌、416 張牌，每發一張牌，\n"
+        "剩餘牌組的機率結構就在改變。\n\n"
+        "百家之眼做的事很單純：\n"
+        "把這些數學算好，即時告訴你。\n\n"
+        "我們不賣牌路、不帶單、不保證贏，\n"
+        "只提供透明的數據，讓你自己判斷。\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "🎁 推薦好友計畫\n\n"
+        "把你的專屬推薦碼分享給朋友：\n"
+        "  ✦ 每推薦 1 人加入 → 你得 1 天使用權\n"
+        "  ✦ 好友正式註冊 → 你再得 7 天\n\n"
+        "→ 輸入「我的推薦碼」查看你的推薦碼\n"
+        "→ 輸入「指令」查看所有指令")
+
 # ── Webhook ──────────────────────────────────────────────
 @app.route("/health")
 def health():
@@ -882,13 +944,16 @@ def handle_message(event):
         try:
             sb().table("members").update({"welcomed": True}).eq("user_id", user_id).execute()
             reply_text(token,
-                "歡迎加入百家之眼\n"
+                "歡迎加入【百家之眼】\n"
                 "━━━━━━━━━━━━━━\n\n"
-                "即時監控 MT 全 13 廳，\n"
-                "當EV翻正時第一時間通知你出手。\n\n"
-                "👉 現在試試：點選單「仙人指路」\n"
-                "看看哪張桌目前最值得關注。\n\n"
-                "🎁 有推薦碼？輸入「好友推薦碼 REF-XXXX」")
+                "我們是一群用數據打牌的人。\n\n"
+                "百家之眼即時追蹤 8 副牌、計算每一手的\n"
+                "期望值（EV），在機率站到你這邊時通知你。\n\n"
+                "不靠感覺，靠數學。\n\n"
+                "━━━━━━━━━━━━━━\n"
+                "🎯 馬上試試 → 點選單「仙人指路」\n"
+                "📖 想了解更多 → 輸入「功能介紹」\n"
+                "🎁 有推薦碼 → 輸入「好友推薦碼 REF-XXXX」")
             return
         except Exception as e:
             print(f"[Welcome] 更新 welcomed 失敗: {e}", flush=True)
@@ -897,12 +962,14 @@ def handle_message(event):
     txt_lower = text.lower()
 
     # ── 不需要 CD 的指令（純文字 / 輕量查詢）──
-    if text == "介紹" or "全廳掃描" in text:
+    if text in ("介紹", "我的帳號", "我的帐号") or "全廳掃描" in text:
         cmd_intro(user_id, token, member); return
     if txt_lower in ("ev介紹", "ev介绍", "ev 介紹", "ev 介绍"):
         cmd_ev_intro(user_id, token); return
     if text in ("算牌介紹", "算牌介绍"):
         cmd_card_intro(user_id, token); return
+    if text in ("功能介紹", "功能介绍", "詳細介紹", "详细介绍", "了解更多"):
+        cmd_feature_intro(user_id, token); return
     if text in ("我的推薦碼", "推薦碼", "我的推荐码", "推荐码"):
         cmd_my_code(user_id, token, member); return
     if text in ("聊天室", "群組", "社群"):
