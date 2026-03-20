@@ -44,6 +44,7 @@ airdrop      = {}   # user_id → {expire_at, notified: {table_id: last_hand}}
 follow_lock  = threading.Lock()
 airdrop_lock = threading.Lock()
 _cooldown    = {}   # user_id → last_cmd_time
+_pending_extend = {}  # agent_user_id → {target_ref, days, expire_ts}
 
 def is_maintenance() -> bool:
     """從 DB 讀取維護模式狀態"""
@@ -351,6 +352,14 @@ def cmd_intro(user_id, token, member):
         f"・好友完成正式註冊 → +7 天\n\n"
         f"正式註冊：{REGISTER_URL}")
 
+def get_agent(user_id: str):
+    """查詢 agents 表，回傳 agent row 或 None"""
+    try:
+        r = sb().table("agents").select("*").eq("agent_id", user_id).eq("is_active", True).execute()
+        return r.data[0] if r.data else None
+    except Exception:
+        return None
+
 def is_admin(user_id: str) -> bool:
     if ADMIN_USER_ID and user_id == ADMIN_USER_ID:
         return True
@@ -466,6 +475,85 @@ def cmd_admin_extend(user_id, token, text):
     try:
         push_text(uid, f"🎉 你的使用期限已延長 {days} 天！新到期時間：{new_exp_tw}")
     except: pass
+
+def cmd_agent_extend(user_id, token, text, agent):
+    """代理延長指令：延長 REF-XXXX X天"""
+    parts = text.strip().split()
+    if len(parts) < 3:
+        reply_text(token, "格式：延長 REF-XXXX X天\n例如：延長 REF-AB12 7天"); return
+    target_ref = parts[1].upper()
+    # 解析天數：支援 "7天" 或 "7"
+    day_str = parts[2].replace("天", "").strip()
+    try:
+        days = int(day_str)
+    except ValueError:
+        reply_text(token, "天數格式錯誤，請輸入數字\n例如：延長 REF-AB12 7天"); return
+
+    if days <= 0:
+        reply_text(token, "❌ 天數必須大於 0"); return
+
+    max_days = agent.get("max_extend_days", 31)
+    if days > max_days:
+        reply_text(token, f"❌ 超過上限，你最多可延長 {max_days} 天"); return
+
+    # 查找目標用戶
+    if target_ref.startswith("REF-"):
+        r = sb().table("members").select("*").eq("referral_code", target_ref).execute()
+    else:
+        reply_text(token, "請使用推薦碼格式：REF-XXXX"); return
+
+    if not r.data:
+        reply_text(token, f"找不到用戶：{target_ref}"); return
+
+    m = r.data[0]
+    target_name = target_ref
+
+    # 存入待確認
+    _pending_extend[user_id] = {
+        "target_ref": target_ref,
+        "target_uid": m["user_id"],
+        "days": days,
+        "expire_ts": time.time() + 120,  # 2 分鐘內有效
+    }
+    reply_text(token,
+        f"📋 延長確認\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"用戶：{target_name}\n"
+        f"天數：{days} 天\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"輸入「確定」執行，或輸入其他取消")
+
+def cmd_agent_confirm(user_id, token):
+    """代理確認延長"""
+    pending = _pending_extend.pop(user_id, None)
+    if not pending:
+        return False  # 沒有待確認的操作
+
+    if time.time() > pending["expire_ts"]:
+        reply_text(token, "⏰ 確認已過期，請重新輸入延長指令")
+        return True
+
+    target_uid = pending["target_uid"]
+    target_ref = pending["target_ref"]
+    days = pending["days"]
+
+    # 執行延長
+    r = sb().table("members").select("*").eq("user_id", target_uid).execute()
+    if not r.data:
+        reply_text(token, f"❌ 找不到用戶 {target_ref}"); return True
+
+    m = r.data[0]
+    exp = m.get("expire_at")
+    base = max(datetime.fromisoformat(exp.replace("Z", "+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
+    new_exp = (base + timedelta(days=days)).isoformat()
+    sb().table("members").update({"expire_at": new_exp}).eq("user_id", target_uid).execute()
+
+    new_exp_tw = datetime.fromisoformat(new_exp).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+    reply_text(token, f"✅ 已延長 {target_ref} {days} 天\n新到期：{new_exp_tw}")
+    try:
+        push_text(target_uid, f"🎉 你的使用期限已延長 {days} 天！新到期時間：{new_exp_tw}")
+    except: pass
+    return True
 
 def get_promo_code(code_str: str):
     """從 DB 查詢活動碼，回傳 row dict 或 None"""
@@ -719,7 +807,16 @@ def handle_message(event):
     if text.startswith("開通"):
         cmd_admin_activate(user_id, token, text); return
     if text.startswith("延長"):
-        cmd_admin_extend(user_id, token, text); return
+        if is_admin(user_id):
+            cmd_admin_extend(user_id, token, text); return
+        agent = get_agent(user_id)
+        if agent:
+            cmd_agent_extend(user_id, token, text, agent); return
+        reply_text(token, "❌ 無權限"); return
+
+    # 代理確認（「確定」）
+    if text == "確定" and user_id in _pending_extend:
+        cmd_agent_confirm(user_id, token); return
 
     # 舊系統轉移（偵測特徵格式）
     if "效期" in text and "推薦碼" in text:
