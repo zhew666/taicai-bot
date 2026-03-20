@@ -191,8 +191,8 @@ def get_or_create_member(user_id: str) -> dict:
     now = datetime.now(timezone.utc)
     member = {
         "user_id":       user_id,
-        "trial_start":   now.isoformat(),
-        "expire_at":     (now + timedelta(hours=TRIAL_HOURS)).isoformat(),
+        "trial_start":   None,
+        "expire_at":     None,
         "is_member":     False,
         "referral_code": gen_referral_code(),
         "referred_by":   None,
@@ -201,9 +201,24 @@ def get_or_create_member(user_id: str) -> dict:
     sb().table("members").insert(member).execute()
     return member
 
+def activate_trial(user_id: str, member: dict) -> dict:
+    """首次使用功能時才啟動試用倒數"""
+    if member.get("trial_start") or member.get("is_member"):
+        return member
+    now = datetime.now(timezone.utc)
+    updates = {
+        "trial_start": now.isoformat(),
+        "expire_at": (now + timedelta(hours=TRIAL_HOURS)).isoformat(),
+    }
+    sb().table("members").update(updates).eq("user_id", user_id).execute()
+    member.update(updates)
+    return member
+
 def is_allowed(member: dict) -> bool:
     if member.get("is_member"):
         return True
+    if not member.get("trial_start"):
+        return True  # 尚未啟動試用，允許使用（會在功能內啟動）
     exp = member.get("expire_at")
     if not exp:
         return False
@@ -220,6 +235,7 @@ def expired_reply(token: str, member: dict):
 
 # ── 指令處理 ──────────────────────────────────────────────
 def cmd_follow(user_id, token, text, member):
+    member = activate_trial(user_id, member)
     if not is_allowed(member):
         expired_reply(token, member); return
     tid = normalize_table(text[2:].strip())
@@ -230,6 +246,7 @@ def cmd_follow(user_id, token, text, member):
     reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳，稍等...")
 
 def cmd_airdrop(user_id, token, text, member):
+    member = activate_trial(user_id, member)
     if not is_allowed(member):
         expired_reply(token, member); return
     import re
@@ -249,6 +266,7 @@ def cmd_stop(user_id, token):
     reply_text(token, f"已停止：{'、'.join(removed)}" if removed else "目前沒有進行中的監控")
 
 def cmd_guide(user_id, token, member):
+    member = activate_trial(user_id, member)
     if not is_allowed(member):
         expired_reply(token, member); return
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
@@ -275,10 +293,12 @@ def cmd_guide(user_id, token, member):
     if best_val > 0:
         msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
                f"第{next_hand}手 {label} EV={best_val:+.4f} ✅\n"
-               f"（即時數據，實際手數可能略有偏移）")
+               f"正EV機會，可考慮出手")
     else:
-        msg = (f"🧙 仙人指路\n目前無正EV選項，最接近：\n"
-               f"第{t}廳{d_str}\n第{next_hand}手\n{label} EV={best_val:+.4f}")
+        msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
+               f"第{next_hand}手\n"
+               f"目前最佳選項：{label} EV={best_val:+.4f}\n"
+               f"靴牌進行中，持續監控")
     reply_text(token, msg)
 
 def cmd_my_code(user_id, token, member):
@@ -324,7 +344,8 @@ def cmd_intro(user_id, token, member):
 
     reply_text(token,
         f"📋 帳號狀態：\n"
-        f"{status}\n\n"
+        f"{status}\n"
+        f"📡 支援場館：MT 13 廳\n\n"
         f"🔗 你的專屬推薦碼：{code}\n"
         f"・每邀請 1 人試用 → +1 天\n"
         f"・好友完成正式註冊 → +7 天\n\n"
@@ -714,7 +735,7 @@ def handle_message(event):
             sb().table("members").update({"welcomed": True}).eq("user_id", user_id).execute()
             reply_text(token,
                 "歡迎來到百家之眼\n\n"
-                "我們即時監控 13 張百家樂桌台，\n"
+                "我們即時追蹤 MT 13 張桌台，\n"
                 "幫你找出最有利的出手時機。\n\n"
                 "簡單說：你不用自己盯盤，\n"
                 "有機會的時候我們會通知你。\n\n"
@@ -751,9 +772,12 @@ def handle_message(event):
         cmd_card_intro(user_id, token); return
     if text in ("我的推薦碼", "推薦碼", "我的推荐码", "推荐码"):
         cmd_my_code(user_id, token, member); return
+    if text in ("聊天室", "群組", "社群"):
+        reply_text(token, "💬 加入百家之眼聊天室\n\n👉 https://line.me/ti/g/ddjjpjznQL"); return
     if text in ("說明", "说明", "help", "指令", "Help", "HELP"):
         reply_text(token,
             "🃏 百家之眼 指令說明\n"
+            "📡 支援場館：MT 13 廳\n"
             "━━━━━━━━━━━━━━\n\n"
             "🪂 空投 X\n"
             "→ 開啟全廳掃描 X 小時（1~3），\n"
@@ -770,7 +794,8 @@ def handle_message(event):
             "🎁 好友推薦碼 REF-XXXX → 輸入推薦碼\n"
             "📊 EV介紹 → EV期望值是什麼？\n"
             "🃏 算牌介紹 → 我們怎麼計算？\n"
-            "📖 介紹 → 帳號狀態與說明\n\n"
+            "📖 介紹 → 帳號狀態與說明\n"
+            "💬 聊天室 → 進群交流\n\n"
             "💡 所有指令送出後，請稍等 5 秒再進行操作")
         return
 
