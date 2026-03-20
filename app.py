@@ -308,58 +308,30 @@ def cmd_guide(user_id, token, member):
         fresh_rows = []
     if not fresh_rows:
         reply_text(token, "目前無即時數據，請稍後再試"); return
-
-    # 每桌最佳 EV
-    table_best = {}
+    best_row, best_field, best_val = None, None, -999
     for row in fresh_rows:
-        best_f, best_v = None, -999
         for f in EV_FIELDS:
             v = row.get(f)
-            if v is not None and v > best_v:
-                best_v, best_f = v, f
-        if best_f:
-            table_best[row["table_id"]] = {"row": row, "field": best_f, "val": best_v}
-
-    if not table_best:
+            if v is not None and v > best_val:
+                best_val, best_field, best_row = v, f, row
+    if not best_row:
         reply_text(token, "目前無即時數據，請稍後再試"); return
-
-    # 排名 Top 3
-    ranked = sorted(table_best.values(), key=lambda x: -x["val"])[:2]
-    active_count = len(table_best)
-    pos_count = sum(1 for tb in table_best.values() if tb["val"] > 0)
-
-    lines = []
-
-    for i, tb in enumerate(ranked, 1):
-        row = tb["row"]
-        t = tnum(row["table_id"])
-        hand = row["hand_num"]
-        label = EV_LABELS.get(tb["field"], tb["field"])
-        val = tb["val"]
-        dealer = row.get("dealer") or ""
-        d_str = f"｜{dealer}" if dealer and dealer != "未知" else ""
-
-        if val > 0:
-            icon = "🟢"
-        elif val > -0.005:
-            icon = "🟡"
-        else:
-            icon = "🔴"
-
-        lines.append(f"{icon} #{i} 第{t}廳 第{hand+1}手{d_str}")
-        lines.append(f"{label} EV={val:+.4f}｜")
-        if i < len(ranked):
-            lines.append("")
-
-    lines.append("")
-    lines.append(f"📡 全廳概況：{active_count} 廳運行中｜")
-    lines.append("")
-    if pos_count > 0:
-        lines.append("💡 有正EV機會，開啟空投即時掌握")
+    label = EV_LABELS.get(best_field, best_field)
+    t     = tnum(best_row["table_id"])
+    hand  = best_row["hand_num"]
+    dealer = best_row.get("dealer") or ""
+    d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
+    next_hand = hand + 1
+    if best_val > 0:
+        msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
+               f"第{next_hand}手 {label} EV={best_val:+.4f} ✅\n"
+               f"正EV機會，可考慮出手")
     else:
-        lines.append("💡 尚無正EV，建議開啟空投等待時機")
-
-    reply_text(token, "\n".join(lines))
+        msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
+               f"第{next_hand}手\n"
+               f"目前最佳選項：{label} EV={best_val:+.4f}\n"
+               f"靴牌進行中，持續監控")
+    reply_text(token, msg)
 
 def cmd_my_code(user_id, token, member):
     code = member.get("referral_code", "N/A")
