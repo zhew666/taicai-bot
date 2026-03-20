@@ -288,9 +288,7 @@ def cmd_airdrop(user_id, token, text, member):
     # 即時狀態快照
     exp_tw = exp.astimezone(timezone(timedelta(hours=8))).strftime("%H:%M")
     try:
-        fresh = sb().table("latest_hands").select("table_id," + ",".join(EV_FIELDS)).gte(
-            "created_at", (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
-        ).execute().data or []
+        fresh = sb().table("latest_hands").select("table_id," + ",".join(EV_FIELDS)).execute().data or []
     except Exception:
         fresh = []
     active = len(fresh)
