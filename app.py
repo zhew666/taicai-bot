@@ -28,11 +28,13 @@ def sb():
         _thread_local.client = create_client(_sb_url, _sb_key)
     return _thread_local.client
 
-REGISTER_URL    = os.environ.get("REGISTER_URL", "（請洽管理員）")
+REGISTER_URL    = os.environ.get("REGISTER_URL", "gw55.GW1688.NET")
 ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
 ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
+GW_STAFF_IDS    = [x.strip() for x in os.environ.get("GW_STAFF_IDS", "").split(",") if x.strip()]
 TRIAL_HOURS    = 1
 WARN_MINUTES   = 15
+GW_TIERS       = {1000: 3, 5000: 7, 10000: 31}  # 充值金額 → 天數
 ALL_TABLES   = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A"]
 EV_FIELDS    = ["ev_banker", "ev_player", "ev_super6", "ev_pair_p", "ev_pair_b", "ev_tie"]
 EV_LABELS    = {"ev_banker": "莊", "ev_player": "閒", "ev_tie": "和",
@@ -45,6 +47,7 @@ follow_lock  = threading.Lock()
 airdrop_lock = threading.Lock()
 _cooldown    = {}   # user_id → last_cmd_time
 _pending_extend = {}  # agent_user_id → {target_ref, days, expire_ts}
+_pending_bind   = {}  # user_id → {"state": "awaiting_account", "expire_ts": ...}
 _poll_stats  = {"count": 0, "airdrop_triggers": 0, "last_trigger": None}  # poll 健康監控
 _push_lock   = threading.Lock()
 _last_push   = 0  # 上次 push 的時間戳
@@ -246,9 +249,16 @@ def expired_reply(token: str, member: dict):
     code = member.get("referral_code", "N/A")
     reply_text(token,
         f"⏰ 試用已結束\n\n"
-        f"分享你的推薦碼給好友，每人試用 +1 天：\n"
-        f"📋 {code}\n\n"
-        f"正式註冊：{REGISTER_URL}")
+        f"想繼續使用？前往金銀匯註冊：\n"
+        f"👉 gw55.GW1688.NET\n\n"
+        f"註冊完成後，輸入「綁定帳號」\n"
+        f"審核通過後自動延長使用期限\n\n"
+        f"💡 充值 1,000 → 3 天\n"
+        f"💡 充值 5,000 → 7 天\n"
+        f"💡 充值 10,000 → 31 天\n\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"📋 你的推薦碼：{code}\n"
+        f"分享給好友，每人可獲得額外試用時間")
 
 # ── 指令處理 ──────────────────────────────────────────────
 def cmd_follow(user_id, token, text, member):
@@ -280,8 +290,8 @@ def cmd_follow(user_id, token, text, member):
 
     with follow_lock:
         following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0,
-                              "started_at": time.time(), "remaining": 10}
-    reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳（接下來 10 手）")
+                              "started_at": time.time()}
+    reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳...")
 
 def cmd_airdrop(user_id, token, text, member):
     member = activate_trial(user_id, member)
@@ -621,6 +631,209 @@ def cmd_agent_confirm(user_id, token):
     except: pass
     return True
 
+# ── GW 金銀匯相關 ──────────────────────────────────────────
+def is_gw_staff(user_id: str) -> bool:
+    return user_id in GW_STAFF_IDS
+
+def cmd_bind_gw_start(user_id, token, member):
+    """用戶輸入「綁定帳號」，進入二段式問答"""
+    existing = member.get("gw_account")
+    if existing:
+        status = member.get("gw_status", "pending")
+        if status == "pending":
+            reply_text(token,
+                f"📋 你的帳號：{existing}\n"
+                f"狀態：審核中 ⏳\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"客服正在審核，請耐心等候\n"
+                f"通過後系統會立即通知你\n\n"
+                f"帳號填錯了？→ 輸入「更換帳號」")
+        elif status == "verified":
+            reply_text(token,
+                f"📋 你的帳號：{existing}\n"
+                f"狀態：已通過 ✅\n\n"
+                f"如需再次充值延長，請直接在金銀匯充值\n"
+                f"客服確認後會自動延長期限")
+        elif status == "rejected":
+            reply_text(token,
+                f"📋 你的帳號：{existing}\n"
+                f"狀態：未通過 ❌\n\n"
+                f"請確認是否已完成註冊及充值\n"
+                f"帳號填錯了？→ 輸入「更換帳號」")
+        else:
+            reply_text(token,
+                f"📋 你的帳號：{existing}\n\n"
+                f"帳號填錯了？→ 輸入「更換帳號」")
+        return
+
+    _pending_bind[user_id] = {"state": "awaiting_account", "expire_ts": time.time() + 120}
+    reply_text(token,
+        "請輸入您在金銀匯的帳號：\n"
+        "━━━━━━━━━━━━━━\n"
+        "直接輸入帳號即可（英文、數字皆可）\n\n"
+        "⏳ 請在 2 分鐘內輸入")
+
+def cmd_bind_gw_rebind(user_id, token, member):
+    """用戶輸入「更換帳號」，重新綁定"""
+    old = member.get("gw_account")
+    if member.get("gw_status") == "verified":
+        reply_text(token,
+            f"⚠️ 你的帳號 {old} 已通過驗證\n"
+            f"如需更換請聯繫客服")
+        return
+    _pending_bind[user_id] = {"state": "awaiting_account", "expire_ts": time.time() + 120}
+    msg = f"目前綁定：{old}\n\n" if old else ""
+    reply_text(token,
+        f"{msg}請輸入新的金銀匯帳號：\n"
+        "━━━━━━━━━━━━━━\n"
+        "直接輸入帳號即可\n\n"
+        "⏳ 請在 2 分鐘內輸入")
+
+def cmd_bind_gw_capture(user_id, token, text):
+    """捕捉用戶輸入的 GW 帳號"""
+    pending = _pending_bind.pop(user_id, None)
+    if not pending or time.time() > pending["expire_ts"]:
+        return False
+    account = text.strip()
+    if len(account) < 2 or len(account) > 30:
+        reply_text(token, "帳號格式不正確，請重新輸入「綁定帳號」")
+        return True
+    # 檢查是否已被其他人綁定
+    existing = sb().table("members").select("user_id").eq("gw_account", account).execute()
+    if existing.data and existing.data[0]["user_id"] != user_id:
+        reply_text(token, "⚠️ 此帳號已被其他用戶綁定，請確認後再試")
+        return True
+    sb().table("members").update({
+        "gw_account": account,
+        "gw_status": "pending"
+    }).eq("user_id", user_id).execute()
+    reply_text(token,
+        f"✅ 已記錄您的金銀匯帳號：{account}\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"已通知客服進行審核\n"
+        f"審核通過後將自動延長使用期限\n\n"
+        f"💡 充值 1,000 → 3 天\n"
+        f"💡 充值 5,000 → 7 天\n"
+        f"💡 充值 10,000 → 31 天\n\n"
+        f"請耐心等候審核結果\n"
+        f"填錯了？→ 輸入「更換帳號」")
+    # 通知 GW 客服審核
+    for staff_id in GW_STAFF_IDS:
+        try:
+            push_text(staff_id,
+                f"📋 新帳號待審核\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"金銀匯帳號：{account}\n\n"
+                f"請確認註冊及充值後回覆：\n"
+                f"  確認 {account} <金額>\n\n"
+                f"未通過請回覆：\n"
+                f"  未通過 {account}")
+        except Exception as e:
+            print(f"[GW] 通知客服失敗: {e}", flush=True)
+    return True
+
+def cmd_gw_status(user_id, token, member):
+    """用戶查詢審核狀態"""
+    account = member.get("gw_account")
+    if not account:
+        reply_text(token,
+            "尚未綁定金銀匯帳號\n\n"
+            "請先前往註冊：gw55.GW1688.NET\n"
+            "註冊後輸入「綁定帳號」綁定")
+        return
+    status = member.get("gw_status", "none")
+    status_label = {"none": "未提交", "pending": "審核中", "verified": "已通過", "rejected": "未通過"}.get(status, status)
+    reply_text(token,
+        f"📋 金銀匯帳號：{account}\n"
+        f"審核狀態：{status_label}\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"💡 充值 1,000 → 3 天\n"
+        f"💡 充值 5,000 → 7 天\n"
+        f"💡 充值 10,000 → 31 天")
+
+def cmd_gw_verify(user_id, token, text):
+    """GW 客服確認指令：確認 <帳號> <金額>"""
+    if not is_gw_staff(user_id):
+        return False
+    parts = text.strip().split()
+    if len(parts) < 3:
+        reply_text(token, "格式：確認 <帳號> <金額>\n例如：確認 abc123 5000")
+        return True
+    account = parts[1]
+    try:
+        amount = int(parts[2])
+    except ValueError:
+        reply_text(token, "金額請輸入數字")
+        return True
+    days = GW_TIERS.get(amount)
+    if not days:
+        tiers_str = "、".join(f"{k}→{v}天" for k, v in sorted(GW_TIERS.items()))
+        reply_text(token, f"金額不在方案內\n可用方案：{tiers_str}")
+        return True
+    # 查找綁定此帳號的用戶
+    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    if not r.data:
+        reply_text(token, f"找不到綁定帳號 {account} 的用戶")
+        return True
+    m = r.data[0]
+    target_uid = m["user_id"]
+    exp = m.get("expire_at")
+    base = max(datetime.fromisoformat(exp.replace("Z", "+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
+    new_exp = (base + timedelta(days=days)).isoformat()
+    sb().table("members").update({
+        "expire_at": new_exp,
+        "gw_status": "verified"
+    }).eq("user_id", target_uid).execute()
+    # 記錄充值事件
+    try:
+        sb().table("gw_deposits").insert({
+            "user_id": target_uid,
+            "gw_account": account,
+            "amount": amount,
+            "days_granted": days,
+            "verified_by": user_id,
+        }).execute()
+    except Exception as e:
+        print(f"[GW] 記錄充值失敗: {e}", flush=True)
+    new_exp_tw = datetime.fromisoformat(new_exp).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+    reply_text(token, f"✅ 已確認 {account}\n充值 {amount} → 延長 {days} 天\n新到期：{new_exp_tw}")
+    try:
+        push_text(target_uid,
+            f"🎉 帳號驗證通過！\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"充值金額：{amount:,}\n"
+            f"使用期限延長 {days} 天\n"
+            f"新到期時間：{new_exp_tw}\n\n"
+            f"感謝使用百家之眼！")
+    except: pass
+    return True
+
+def cmd_gw_reject(user_id, token, text):
+    """GW 客服拒絕指令：未通過 <帳號>"""
+    if not is_gw_staff(user_id):
+        return False
+    parts = text.strip().split()
+    if len(parts) < 2:
+        reply_text(token, "格式：未通過 <帳號>")
+        return True
+    account = parts[1]
+    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    if not r.data:
+        reply_text(token, f"找不到綁定帳號 {account} 的用戶")
+        return True
+    target_uid = r.data[0]["user_id"]
+    sb().table("members").update({"gw_status": "rejected"}).eq("user_id", target_uid).execute()
+    reply_text(token, f"✅ 已標記 {account} 未通過")
+    try:
+        push_text(target_uid,
+            "❌ 帳號驗證未通過\n"
+            "━━━━━━━━━━━━━━\n"
+            "請確認是否已完成註冊及充值\n\n"
+            "註冊網址：gw55.GW1688.NET\n"
+            "完成後請重新輸入「綁定帳號」")
+    except: pass
+    return True
+
 def get_promo_code(code_str: str):
     """從 DB 查詢活動碼，回傳 row dict 或 None"""
     r = (sb().table("promo_codes").select("*")
@@ -634,6 +847,14 @@ def get_promo_code(code_str: str):
         return None
     return row
 
+def _has_used(user_id: str, code_type: str) -> bool:
+    """檢查用戶是否已使用過某類型的碼（promo 或 referral）"""
+    r = (sb().table("referral_events").select("id")
+           .eq("referee_id", user_id)
+           .eq("code_type", code_type)
+           .limit(1).execute())
+    return bool(r.data)
+
 def cmd_enter_code(user_id, token, text, member):
     import re
     # 清理輸入：去掉前綴、空格、冒號，取得純碼
@@ -642,14 +863,14 @@ def cmd_enter_code(user_id, token, text, member):
     code_clean = re.sub(r'^REF-', '', raw, flags=re.IGNORECASE).strip()
     promo = get_promo_code(code_clean)
     if promo:
-        if member.get("referred_by"):
-            reply_text(token, "你已經使用過推薦碼了"); return
+        # 每人限用一次活動碼（查 referral_events）
+        if _has_used(user_id, "promo"):
+            reply_text(token, "⚠️ 每人限用一次活動碼"); return
         bonus_hours = promo["bonus_hours"]
         exp = member.get("expire_at")
         base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
         new_exp = (base + timedelta(hours=bonus_hours)).isoformat()
         sb().table("members").update({
-            "referred_by": f"PROMO_{code_clean.upper()}",
             "expire_at": new_exp
         }).eq("user_id", user_id).execute()
         # 更新使用次數
@@ -660,7 +881,7 @@ def cmd_enter_code(user_id, token, text, member):
         sb().table("referral_events").insert({
             "referee_id": user_id,
             "code_used": code_clean.lower(),
-            "code_type": promo.get("type", "promo"),
+            "code_type": "promo",
             "event_type": "used_promo",
             "bonus_given_hours": bonus_hours,
         }).execute()
@@ -676,8 +897,9 @@ def cmd_enter_code(user_id, token, text, member):
     if not r_check.data:
         reply_text(token, "找不到這個碼，請確認後再試"); return
     code = code_upper
-    if member.get("referred_by"):
-        reply_text(token, "你已經輸入過推薦碼了"); return
+    # 每人限用一次推薦碼（查 referral_events）
+    if _has_used(user_id, "referral"):
+        reply_text(token, "⚠️ 每人限用一次推薦碼"); return
     referrer = r_check.data[0]
     if referrer["user_id"] == user_id:
         reply_text(token, "不能輸入自己的推薦碼"); return
@@ -941,9 +1163,19 @@ def handle_message(event):
             cmd_agent_extend(user_id, token, text, agent); return
         reply_text(token, "❌ 無權限"); return
 
+    # GW 客服指令（確認/未通過）
+    if text.startswith("確認") and is_gw_staff(user_id):
+        if cmd_gw_verify(user_id, token, text): return
+    if text.startswith("未通過") and is_gw_staff(user_id):
+        if cmd_gw_reject(user_id, token, text): return
+
     # 代理確認（「確定」）
     if text == "確定" and user_id in _pending_extend:
         cmd_agent_confirm(user_id, token); return
+
+    # 二段式 GW 帳號綁定（捕捉用戶回覆）
+    if user_id in _pending_bind:
+        if cmd_bind_gw_capture(user_id, token, text): return
 
     # 舊系統轉移（偵測特徵格式）
     if "效期" in text and "推薦碼" in text:
@@ -986,6 +1218,12 @@ def handle_message(event):
         cmd_feature_intro(user_id, token); return
     if text in ("我的推薦碼", "推薦碼", "我的推荐码", "推荐码"):
         cmd_my_code(user_id, token, member); return
+    if text in ("綁定帳號", "绑定帐号", "綁定"):
+        cmd_bind_gw_start(user_id, token, member); return
+    if text in ("更換帳號", "更换帐号"):
+        cmd_bind_gw_rebind(user_id, token, member); return
+    if text in ("審核狀態", "审核状态", "審核"):
+        cmd_gw_status(user_id, token, member); return
     if text in ("聊天室", "群組", "社群"):
         reply_text(token, "💬 加入百家之眼聊天室\n\n👉 https://line.me/ti/g/ddjjpjznQL"); return
     if text in ("說明", "说明", "help", "指令", "Help", "HELP"):
@@ -1006,6 +1244,8 @@ def handle_message(event):
             "━━━━━━━━━━━━━━\n\n"
             "📋 我的推薦碼 → 查推薦碼與期限\n"
             "🎁 好友推薦碼 REF-XXXX → 輸入推薦碼\n"
+            "🔗 綁定帳號 → 綁定金銀匯帳號\n"
+            "📊 審核狀態 → 查詢帳號審核進度\n"
             "📊 EV介紹 → EV期望值是什麼？\n"
             "🃏 算牌介紹 → 我們怎麼計算？\n"
             "📖 介紹 → 帳號狀態與說明\n"
@@ -1091,12 +1331,8 @@ def _poll_following(latest_hands: dict):
                         following[user_id]["last_shoe"] = cur_shoe
                         following[user_id]["last_hand"] = cur_hand
                 print(f"[Follow] 首次連線，push 確認給 {user_id}", flush=True)
-                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳（接下來 10 手）")
+                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳\n每手新牌即時推送，換靴自動停止\n再次輸入「跟隨」可手動停止")
                 push_text(user_id, format_hand(row))
-                # 首手算 1 手
-                with follow_lock:
-                    if user_id in following:
-                        following[user_id]["remaining"] = following[user_id].get("remaining", 10) - 1
                 print(f"[Follow] push 完成", flush=True)
                 continue
 
@@ -1108,14 +1344,6 @@ def _poll_following(latest_hands: dict):
                     if i > 0:
                         time.sleep(0.3)
                     push_text(user_id, format_hand(r))
-                    # 扣手數
-                    with follow_lock:
-                        if user_id in following:
-                            following[user_id]["remaining"] = following[user_id].get("remaining", 10) - 1
-                            if following[user_id]["remaining"] <= 0:
-                                following.pop(user_id)
-                                push_text(user_id, f"👁 第{tnum(tid)}廳 10 手已結束\n再次輸入「跟隨 {tnum(tid)}廳」繼續")
-                                break
                 with follow_lock:
                     if user_id in following:
                         following[user_id]["last_shoe"] = cur_shoe
@@ -1215,10 +1443,13 @@ def _poll_trial_warnings():
                 code = m.get("referral_code", "N/A")
                 try:
                     push_text(m["user_id"],
-                        f"⏰ 試用剩餘 15 分鐘\n\n"
-                        f"分享推薦碼給好友，每人使用 +1 天：\n"
-                        f"📋 {code}\n\n"
-                        f"正式註冊：{REGISTER_URL}")
+                        f"⏰ 試用即將結束（剩餘 15 分鐘）\n\n"
+                        f"想繼續使用？\n"
+                        f"👉 前往 gw55.GW1688.NET 註冊\n"
+                        f"註冊後輸入「綁定帳號」即可延長\n\n"
+                        f"💡 充值 1,000→3天 / 5,000→7天 / 10,000→31天\n\n"
+                        f"📋 你的推薦碼：{code}\n"
+                        f"分享給好友也能獲得額外時間")
                     sb().table("members").update({"warned_15min": True}).eq("user_id", m["user_id"]).execute()
                 except Exception as e:
                     print(f"[Trial Warn Error] {m['user_id']}: {e}", flush=True)
