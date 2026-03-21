@@ -118,7 +118,12 @@ def push_text(user_id: str, text: str):
                     PushMessageRequest(to=user_id, messages=[TextMessage(text=text)]))
             return
         except Exception as e:
-            if attempt == 2:
+            err_str = str(e)
+            if "429" in err_str:
+                wait = 2 ** attempt  # 1s, 2s, 4s 指數退避
+                print(f"[push_text] 429 限速，等待 {wait}s 重試", flush=True)
+                time.sleep(wait)
+            elif attempt == 2:
                 print(f"[push_text] 失敗 3 次放棄: {e}", flush=True)
             else:
                 time.sleep(1)
@@ -1084,7 +1089,9 @@ def _poll_following(latest_hands: dict):
                 new_rows = (sb().table("baccarat_hands").select("*")
                               .eq("table_id", tid).eq("shoe", cur_shoe)
                               .gt("hand_num", last_hand).order("hand_num").execute()).data
-                for r in new_rows:
+                for i, r in enumerate(new_rows):
+                    if i > 0:
+                        time.sleep(0.3)
                     push_text(user_id, format_hand(r))
                 with follow_lock:
                     if user_id in following:
