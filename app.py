@@ -46,6 +46,8 @@ airdrop_lock = threading.Lock()
 _cooldown    = {}   # user_id → last_cmd_time
 _pending_extend = {}  # agent_user_id → {target_ref, days, expire_ts}
 _poll_stats  = {"count": 0, "airdrop_triggers": 0, "last_trigger": None}  # poll 健康監控
+_push_lock   = threading.Lock()
+_last_push   = 0  # 上次 push 的時間戳
 
 def is_maintenance() -> bool:
     """從 DB 讀取維護模式狀態"""
@@ -111,7 +113,15 @@ def normalize_table(text: str):
     return None
 
 def push_text(user_id: str, text: str):
+    global _last_push
     for attempt in range(3):
+        # 全局限速：每次 push 間隔至少 0.15 秒
+        with _push_lock:
+            now = time.time()
+            gap = now - _last_push
+            if gap < 0.15:
+                time.sleep(0.15 - gap)
+            _last_push = time.time()
         try:
             with ApiClient(config) as api:
                 MessagingApi(api).push_message(
@@ -120,7 +130,7 @@ def push_text(user_id: str, text: str):
         except Exception as e:
             err_str = str(e)
             if "429" in err_str:
-                wait = 2 ** attempt  # 1s, 2s, 4s 指數退避
+                wait = 2 ** (attempt + 1)  # 2s, 4s, 8s
                 print(f"[push_text] 429 限速，等待 {wait}s 重試", flush=True)
                 time.sleep(wait)
             elif attempt == 2:
