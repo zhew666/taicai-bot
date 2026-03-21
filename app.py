@@ -1017,6 +1017,8 @@ def handle_message(event):
         return
 
     if any(text.startswith(k) for k in ("跟隨","跟随","追隨","追蹤","監控")):
+        if not is_admin(user_id):
+            reply_text(token, "⚙️ 跟隨功能維護中，請稍後再試"); return
         body = text[2:].strip()
         cmd_follow(user_id, token, "跟隨" + body, member)
     elif text.startswith("空投") or text.startswith("開始空投"):
