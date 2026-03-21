@@ -279,8 +279,9 @@ def cmd_follow(user_id, token, text, member):
             reply_text(token, f"👁 已停止跟隨第{tnum(tid)}廳"); return
 
     with follow_lock:
-        following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0, "started_at": time.time()}
-    reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳，稍等...")
+        following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0,
+                              "started_at": time.time(), "remaining": 10}
+    reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳（接下來 10 手）")
 
 def cmd_airdrop(user_id, token, text, member):
     member = activate_trial(user_id, member)
@@ -1017,8 +1018,6 @@ def handle_message(event):
         return
 
     if any(text.startswith(k) for k in ("跟隨","跟随","追隨","追蹤","監控")):
-        if not is_admin(user_id):
-            reply_text(token, "⚙️ 跟隨功能維護中，請稍後再試"); return
         body = text[2:].strip()
         cmd_follow(user_id, token, "跟隨" + body, member)
     elif text.startswith("空投") or text.startswith("開始空投"):
@@ -1092,8 +1091,12 @@ def _poll_following(latest_hands: dict):
                         following[user_id]["last_shoe"] = cur_shoe
                         following[user_id]["last_hand"] = cur_hand
                 print(f"[Follow] 首次連線，push 確認給 {user_id}", flush=True)
-                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳")
+                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳（接下來 10 手）")
                 push_text(user_id, format_hand(row))
+                # 首手算 1 手
+                with follow_lock:
+                    if user_id in following:
+                        following[user_id]["remaining"] = following[user_id].get("remaining", 10) - 1
                 print(f"[Follow] push 完成", flush=True)
                 continue
 
@@ -1105,6 +1108,14 @@ def _poll_following(latest_hands: dict):
                     if i > 0:
                         time.sleep(0.3)
                     push_text(user_id, format_hand(r))
+                    # 扣手數
+                    with follow_lock:
+                        if user_id in following:
+                            following[user_id]["remaining"] = following[user_id].get("remaining", 10) - 1
+                            if following[user_id]["remaining"] <= 0:
+                                following.pop(user_id)
+                                push_text(user_id, f"👁 第{tnum(tid)}廳 10 手已結束\n再次輸入「跟隨 {tnum(tid)}廳」繼續")
+                                break
                 with follow_lock:
                     if user_id in following:
                         following[user_id]["last_shoe"] = cur_shoe
