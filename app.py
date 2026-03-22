@@ -123,6 +123,8 @@ def normalize_table(text: str):
     t = t.strip()
     if t.upper() in ("3A", "03A"):
         return "BAG03A"
+    if t.upper() in ("TEST01", "TEST1", "TEST"):
+        return "TEST01"
     if t.isdigit():
         n = int(t)
         if 1 <= n <= 13:
