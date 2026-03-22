@@ -883,6 +883,88 @@ def _do_gw_reject(text: str) -> str:
     except: pass
     return f"✅ 已標記 {account} 未通過"
 
+def _do_gw_not_deposited(text: str) -> str:
+    """客服回報：有帳號但未儲值"""
+    parts = text.strip().split()
+    if len(parts) < 2:
+        return "格式：未儲值 <帳號>"
+    account = parts[1]
+    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    if not r.data:
+        return f"找不到綁定帳號 {account} 的用戶"
+    target_uid = r.data[0]["user_id"]
+    try:
+        push_text(target_uid,
+            "📋 帳號已確認，但尚未儲值\n"
+            "━━━━━━━━━━━━━━\n"
+            "請先前往金盈匯儲值點數\n"
+            "👉 gw55.GW1688.NET\n\n"
+            "💡 儲值 5,000 點 → 7 天\n"
+            "💡 儲值 10,000 點 → 31 天\n\n"
+            "儲值完成後回來輸入「確認儲值」")
+    except: pass
+    return f"✅ 已通知 {account} 用戶尚未儲值"
+
+def _do_gw_not_found(text: str) -> str:
+    """客服回報：查無此帳號"""
+    parts = text.strip().split()
+    if len(parts) < 2:
+        return "格式：查無 <帳號>"
+    account = parts[1]
+    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    if not r.data:
+        return f"找不到綁定帳號 {account} 的用戶"
+    target_uid = r.data[0]["user_id"]
+    sb().table("members").update({"gw_status": "rejected"}).eq("user_id", target_uid).execute()
+    try:
+        push_text(target_uid,
+            "❌ 查無此帳號\n"
+            "━━━━━━━━━━━━━━\n"
+            "金盈匯查無您綁定的帳號\n"
+            "請確認帳號是否正確\n\n"
+            "如需重新綁定，請輸入「綁定帳號」")
+    except: pass
+    return f"✅ 已通知 {account} 用戶查無此帳號"
+
+def _do_gw_ask_cs(text: str) -> str:
+    """客服回報：請用戶聯繫金盈匯客服"""
+    parts = text.strip().split()
+    if len(parts) < 2:
+        return "格式：請詢問 <帳號>"
+    account = parts[1]
+    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    if not r.data:
+        return f"找不到綁定帳號 {account} 的用戶"
+    target_uid = r.data[0]["user_id"]
+    try:
+        push_text(target_uid,
+            "📋 請聯繫金盈匯客服\n"
+            "━━━━━━━━━━━━━━\n"
+            "您的帳號需要由金盈匯客服協助處理\n"
+            "請直接聯繫金盈匯線上客服\n\n"
+            "👉 gw55.GW1688.NET")
+    except: pass
+    return f"✅ 已通知 {account} 用戶聯繫金盈匯客服"
+
+def _do_gw_reply(text: str) -> str:
+    """客服自訂回覆"""
+    parts = text.strip().split(maxsplit=2)
+    if len(parts) < 3:
+        return "格式：回覆 <帳號> <訊息內容>"
+    account = parts[1]
+    message = parts[2]
+    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    if not r.data:
+        return f"找不到綁定帳號 {account} 的用戶"
+    target_uid = r.data[0]["user_id"]
+    try:
+        push_text(target_uid,
+            f"📋 金盈匯客服回覆\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"{message}")
+    except: pass
+    return f"✅ 已傳送自訂訊息給 {account}"
+
 def get_promo_code(code_str: str):
     """從 DB 查詢活動碼，回傳 row dict 或 None"""
     r = (sb().table("promo_codes").select("*")
@@ -1172,14 +1254,37 @@ def telegram_webhook():
         tg_send(chat_id, f"⚠️ 無權限\n你的 Chat ID：{chat_id}\n請聯繫管理員開通")
         return "OK"
     # 處理指令
+    CMD_HELP = ("📋 百家之眼 GW 客服指令\n"
+                "━━━━━━━━━━━━━━\n\n"
+                "確認 <帳號> <金額>\n→ 儲值確認，自動延長期限\n\n"
+                "未儲值 <帳號>\n→ 帳號存在但尚未儲值\n\n"
+                "查無 <帳號>\n→ 查無此帳號\n\n"
+                "未通過 <帳號>\n→ 驗證未通過\n\n"
+                "請詢問 <帳號>\n→ 請用戶聯繫金盈匯客服\n\n"
+                "回覆 <帳號> <訊息>\n→ 自訂回覆內容\n\n"
+                "範例：確認 abc123 5000")
     if text.startswith("確認") or text.startswith("确认"):
         result = _do_gw_verify(text, verified_by=f"tg_{chat_id}")
+        tg_send(chat_id, result)
+    elif text.startswith("未儲值") or text.startswith("未储值"):
+        result = _do_gw_not_deposited(text)
+        tg_send(chat_id, result)
+    elif text.startswith("查無") or text.startswith("查无"):
+        result = _do_gw_not_found(text)
         tg_send(chat_id, result)
     elif text.startswith("未通過") or text.startswith("未通过"):
         result = _do_gw_reject(text)
         tg_send(chat_id, result)
+    elif text.startswith("請詢問") or text.startswith("请询问"):
+        result = _do_gw_ask_cs(text)
+        tg_send(chat_id, result)
+    elif text.startswith("回覆") or text.startswith("回复"):
+        result = _do_gw_reply(text)
+        tg_send(chat_id, result)
+    elif "指令" in text:
+        tg_send(chat_id, CMD_HELP)
     else:
-        tg_send(chat_id, "📋 百家之眼 GW 客服指令\n━━━━━━━━━━━━━━\n\n確認 <帳號> <金額>\n→ 確認用戶儲值，自動延長期限\n\n未通過 <帳號>\n→ 標記未通過，通知用戶\n\n範例：確認 abc123 5000")
+        pass  # 群組一般聊天不回覆
     return "OK"
 
 @app.route("/webhook", methods=["POST"])
