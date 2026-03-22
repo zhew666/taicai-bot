@@ -383,7 +383,7 @@ def cmd_airdrop(user_id, token, text, member):
     hours = max(1, min(3, int(m.group(1)))) if m else 1
     exp = datetime.now(timezone.utc) + timedelta(hours=hours)
     with airdrop_lock:
-        airdrop[user_id] = {"expire_at": exp, "notified": {}, "last_status": None}
+        airdrop[user_id] = {"expire_at": exp, "notified": {}, "last_status": datetime.now(timezone.utc)}
 
     # 即時狀態快照
     exp_tw = exp.astimezone(timezone(timedelta(hours=8))).strftime("%H:%M")
