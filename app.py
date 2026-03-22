@@ -1552,7 +1552,8 @@ def _poll_airdrop(latest_hands: dict):
     # 獨立查 positive_ev_now View，只取有正 EV 的桌
     try:
         pos_rows = sb().table("positive_ev_now").select("*").execute().data
-        pos_hands = {row["table_id"]: row for row in pos_rows}
+        pos_hands = {row["table_id"]: row for row in pos_rows
+                     if row["table_id"] in ALL_TABLES}
     except Exception as e:
         print(f"[Airdrop] 查 positive_ev_now 失敗: {e}", flush=True)
         pos_hands = {}
