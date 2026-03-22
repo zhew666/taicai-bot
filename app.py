@@ -391,8 +391,9 @@ def cmd_airdrop(user_id, token, text, member):
         fresh = sb().table("latest_hands").select("table_id," + ",".join(EV_FIELDS)).execute().data or []
     except Exception:
         fresh = []
-    active = len(fresh)
-    pos = sum(1 for r in fresh if any(r.get(f) and r[f] > 0 for f in EV_FIELDS))
+    real = [r for r in fresh if r["table_id"] in ALL_TABLES and r["table_id"] != "TEST01"]
+    active = len(real)
+    pos = sum(1 for r in real if any(r.get(f) and r[f] > 0 for f in EV_FIELDS))
 
     lines = [
         "🪂 空投監控已開啟",
@@ -403,7 +404,6 @@ def cmd_airdrop(user_id, token, text, member):
         f"到期時間：{exp_tw}",
         "",
         "偵測到正EV時立即推播通知",
-        "每 30 分鐘自動回報監控狀態",
     ]
     reply_text(token, "\n".join(lines))
 
