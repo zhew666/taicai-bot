@@ -38,7 +38,7 @@ TG_GW_CHAT_IDS  = [x.strip() for x in os.environ.get("TELEGRAM_GW_CHAT_IDS", "")
 TRIAL_HOURS    = 1
 WARN_MINUTES   = 15
 GW_TIERS       = {5000: 7, 10000: 31}  # 儲值金額 → 天數
-ALL_TABLES   = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A"]
+ALL_TABLES   = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A", "TEST01"]
 EV_FIELDS    = ["ev_banker", "ev_player", "ev_super6", "ev_pair_p", "ev_pair_b", "ev_tie"]
 EV_LABELS    = {"ev_banker": "莊", "ev_player": "閒", "ev_tie": "和",
                 "ev_super6": "超六", "ev_pair_p": "閒對", "ev_pair_b": "莊對"}
