@@ -383,7 +383,7 @@ def cmd_airdrop(user_id, token, text, member):
     hours = max(1, min(3, int(m.group(1)))) if m else 1
     exp = datetime.now(timezone.utc) + timedelta(hours=hours)
     with airdrop_lock:
-        airdrop[user_id] = {"expire_at": exp, "notified": {}, "last_status": datetime.now(timezone.utc)}
+        airdrop[user_id] = {"expire_at": exp, "notified": {}, "push_count": 0}
 
     # 即時狀態快照
     exp_tw = exp.astimezone(timezone(timedelta(hours=8))).strftime("%H:%M")
@@ -1563,38 +1563,15 @@ def _poll_airdrop(latest_hands: dict):
     for user_id, state in users.items():
         try:
             if now > state["expire_at"]:
-                push_text(user_id, "🪂 空投監控時間已結束")
+                cnt = state.get("push_count", 0)
+                if cnt > 0:
+                    end_msg = f"🪂 空投監控已結束\n本次共捕獲 {cnt} 次 +EV 空投\n\n輸入「空投」可再次啟動"
+                else:
+                    end_msg = "🪂 空投監控已結束\n本次監控期間未偵測到 +EV\n\n輸入「空投」可再次啟動"
+                push_text(user_id, end_msg)
                 with airdrop_lock:
                     airdrop.pop(user_id, None)
                 continue
-
-            # 30 分鐘定期狀態回報
-            last_status = state.get("last_status")
-            if last_status is None or (now - last_status).total_seconds() >= 1800:
-                with airdrop_lock:
-                    if user_id in airdrop:
-                        airdrop[user_id]["last_status"] = now
-                remain = state["expire_at"] - now
-                remain_min = max(0, int(remain.total_seconds() // 60))
-                pos_count = len(pos_hands)
-                exp_tw = state["expire_at"].astimezone(timezone(timedelta(hours=8))).strftime("%H:%M")
-                status_lines = [
-                    "🪂 空投狀態回報",
-                    "━━━━━━━━━━━━━━",
-                    f"監控廳數：{active_tables} 廳",
-                    f"目前正EV：{pos_count} 廳",
-                    f"剩餘時間：{remain_min} 分鐘（{exp_tw} 到期）",
-                ]
-                if pos_count > 0:
-                    status_lines.append("")
-                    for tid, row in pos_hands.items():
-                        pf = [(EV_LABELS[f], row[f]) for f in EV_FIELDS if row.get(f) and row[f] > 0]
-                        if pf:
-                            best = max(pf, key=lambda x: x[1])
-                            status_lines.append(f"  🟢 第{tnum(tid)}廳 {best[0]} {best[1]:+.4f}")
-                else:
-                    status_lines.append("\n暫無正EV，持續監控中")
-                push_text(user_id, "\n".join(status_lines))
 
             for tid, row in pos_hands.items():
                 cur_hand = row["hand_num"]
@@ -1607,6 +1584,9 @@ def _poll_airdrop(latest_hands: dict):
                 if pos:
                     _poll_stats["airdrop_triggers"] += 1
                     _poll_stats["last_trigger"] = datetime.now(timezone.utc).strftime("%m/%d %H:%M")
+                    with airdrop_lock:
+                        if user_id in airdrop:
+                            airdrop[user_id]["push_count"] = airdrop[user_id].get("push_count", 0) + 1
                     dealer = row.get("dealer") or ""
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
                     next_hand = cur_hand + 1
