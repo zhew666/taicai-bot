@@ -226,8 +226,9 @@ def format_hand(row: dict) -> str:
     dealer = row.get("dealer") or ""
     dealer_str = f"｜荷官：{dealer}" if dealer and dealer != "未知" else ""
 
+    next_hand = hand + 1
     return "\n".join([
-        f"第{tid}廳{dealer_str} | 下一局EV",
+        f"第{tid}廳{dealer_str} | 第{next_hand}局EV",
         f"  莊：{ev_str(row.get('ev_banker'))}  閒：{ev_str(row.get('ev_player'))}",
         f"  超六：{ev_str(row.get('ev_super6'))}  對子：{ev_str(pair_ev)}",
         f"  和：{ev_str(row.get('ev_tie'))}",
