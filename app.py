@@ -91,6 +91,18 @@ def is_maintenance() -> bool:
 def set_maintenance(on: bool):
     """寫入維護模式狀態到 DB"""
     sb().table("system_config").upsert({"key": "maintenance_mode", "value": "true" if on else "false"}).execute()
+
+def is_test_mode() -> bool:
+    """從 DB 讀取測試模式狀態"""
+    try:
+        r = sb().table("system_config").select("value").eq("key", "test_mode").execute()
+        return r.data[0]["value"] == "true" if r.data else False
+    except Exception:
+        return False
+
+def set_test_mode(on: bool):
+    """寫入測試模式狀態到 DB"""
+    sb().table("system_config").upsert({"key": "test_mode", "value": "true" if on else "false"}).execute()
 COOLDOWN_SEC = 5
 
 def check_cooldown(user_id: str) -> bool:
@@ -1336,7 +1348,9 @@ def handle_message(event):
             "管理員指令\n"
             "→ 顯示本列表\n\n"
             "維護開 / 維護關\n"
-            "→ 開關維護模式"
+            "→ 開關維護模式\n\n"
+            "測試開 / 測試關\n"
+            "→ 測試模式（只有管理員能操作和收到推送）"
         ); return
     if text == "維護開":
         if not is_admin(user_id):
@@ -1348,6 +1362,16 @@ def handle_message(event):
             reply_text(token, "❌ 無權限"); return
         set_maintenance(False)
         reply_text(token, "✅ 維護模式已關閉，恢復正常"); return
+    if text == "測試開":
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        set_test_mode(True)
+        reply_text(token, "🧪 測試模式已開啟\n只有管理員能使用指令和收到推送"); return
+    if text == "測試關":
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        set_test_mode(False)
+        reply_text(token, "✅ 測試模式已關閉，所有用戶恢復正常"); return
     if text.startswith("開通"):
         cmd_admin_activate(user_id, token, text); return
     if text.startswith("延長"):
@@ -1372,6 +1396,10 @@ def handle_message(event):
 
     # 維護模式：非管理員直接不回應（LINE 自動回覆處理）
     if is_maintenance() and not is_admin(user_id):
+        return
+
+    # 測試模式：只有管理員能操作
+    if is_test_mode() and not is_admin(user_id):
         return
 
     # 新用戶歡迎訊息（不吃 CD）
@@ -1540,9 +1568,13 @@ def poll_loop():
             _poll_trial_warnings()
 
 def _poll_following(latest_hands: dict):
+    _test_mode = is_test_mode()
     with follow_lock:
         users = dict(following)
     for user_id, state in users.items():
+        # 測試模式：跳過非管理員
+        if _test_mode and not is_admin(user_id):
+            continue
         tid       = state["table_id"]
         last_shoe = state["last_shoe"]
         last_hand = state["last_hand"]
@@ -1591,6 +1623,7 @@ def _poll_following(latest_hands: dict):
             print(f"[Follow Error] {user_id}: {e}", flush=True)
 
 def _poll_airdrop(latest_hands: dict):
+    _test_mode = is_test_mode()
     now = datetime.now(timezone.utc)
     with airdrop_lock:
         users = dict(airdrop)
@@ -1613,6 +1646,9 @@ def _poll_airdrop(latest_hands: dict):
         pos_hands = {}
     active_tables = len(latest_hands)
     for user_id, state in users.items():
+        # 測試模式：跳過非管理員
+        if _test_mode and not is_admin(user_id):
+            continue
         try:
             if now > state["expire_at"]:
                 cnt = state.get("push_count", 0)
