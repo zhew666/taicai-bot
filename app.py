@@ -1715,6 +1715,9 @@ def _poll_following(latest_hands: dict):
                 continue
 
             if last_shoe is None:
+                # 等 EV 回填完再推
+                if row.get("ev_banker") is None:
+                    continue
                 with follow_lock:
                     if user_id in following:
                         following[user_id]["last_shoe"] = cur_shoe
@@ -1726,9 +1729,14 @@ def _poll_following(latest_hands: dict):
                 continue
 
             if cur_hand > last_hand:
+                # 只推送 EV 已回填的手牌（ev_banker 不為 null）
                 new_rows = (sb().table("baccarat_hands").select("*")
                               .eq("table_id", tid).eq("shoe", cur_shoe)
-                              .gt("hand_num", last_hand).order("hand_num").execute()).data
+                              .gt("hand_num", last_hand)
+                              .not_.is_("ev_banker", "null")
+                              .order("hand_num").execute()).data
+                if not new_rows:
+                    continue  # EV 還沒算完，等下次 poll
                 for i, r in enumerate(new_rows):
                     if i > 0:
                         time.sleep(0.3)
