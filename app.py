@@ -54,6 +54,13 @@ _pending_bind   = {}  # user_id → {"state": "awaiting_account", "expire_ts": .
 _poll_stats  = {"count": 0, "airdrop_triggers": 0, "last_trigger": None}  # poll 健康監控
 _push_lock   = threading.Lock()
 _last_push   = 0  # 上次 push 的時間戳
+# ── 數據新鮮度監控（Render 端獨立告警）──
+WATCHDOG_TG_TOKEN   = os.environ.get("WATCHDOG_TG_TOKEN", "")
+ADMIN_TG_CHAT_ID    = os.environ.get("ADMIN_TG_CHAT_ID", "")
+_stale_alert_active = False
+_last_stale_check   = 0
+STALE_THRESHOLD     = 180   # 數據超過 180 秒算過期
+STALE_CHECK_INTERVAL = 60   # 每 60 秒檢查一次
 
 def tg_send(chat_id: str, text: str):
     """發送 Telegram 私訊"""
@@ -1460,6 +1467,48 @@ def handle_message(event):
         cmd_enter_code(user_id, token, text, member)
 
 # ── 背景輪詢 ──────────────────────────────────────────────
+def _check_data_freshness(latest_hands: dict):
+    """Render 端獨立監控：數據超過 3 分鐘未更新就發 TG 警報"""
+    global _stale_alert_active, _last_stale_check
+    now_ts = time.time()
+    if now_ts - _last_stale_check < STALE_CHECK_INTERVAL:
+        return
+    _last_stale_check = now_ts
+    if not WATCHDOG_TG_TOKEN or not ADMIN_TG_CHAT_ID:
+        return
+    try:
+        now_utc = datetime.now(timezone.utc)
+        freshest_age = None
+        for row in latest_hands.values():
+            ca = row.get("created_at", "")
+            if not ca:
+                continue
+            dt = datetime.fromisoformat(ca.replace("Z", "+00:00"))
+            age = (now_utc - dt).total_seconds()
+            if freshest_age is None or age < freshest_age:
+                freshest_age = age
+        if freshest_age is None:
+            freshest_age = 9999
+        if freshest_age > STALE_THRESHOLD and not _stale_alert_active:
+            _stale_alert_active = True
+            msg = (f"\U0001f6a8 [Render] \u6570\u636e\u5df2 {int(freshest_age)} \u79d2\u672a\u66f4\u65b0\uff01\n"
+                   f"ev_monitor \u53ef\u80fd\u65b7\u7dda\u6216\u5d29\u6f70\n"
+                   f"\u8acb\u6aa2\u67e5\u672c\u6a5f ev_monitor \u72c0\u614b")
+            _httpx.post(
+                f"https://api.telegram.org/bot{WATCHDOG_TG_TOKEN}/sendMessage",
+                json={"chat_id": ADMIN_TG_CHAT_ID, "text": msg}, timeout=10)
+            print(f"[Freshness] ALERT sent: {int(freshest_age)}s stale", flush=True)
+        elif freshest_age <= STALE_THRESHOLD and _stale_alert_active:
+            _stale_alert_active = False
+            msg = f"\u2705 [Render] \u6578\u64da\u5df2\u6062\u5fa9\u6b63\u5e38\uff08{int(freshest_age)}\u79d2\u524d\u66f4\u65b0\uff09"
+            _httpx.post(
+                f"https://api.telegram.org/bot{WATCHDOG_TG_TOKEN}/sendMessage",
+                json={"chat_id": ADMIN_TG_CHAT_ID, "text": msg}, timeout=10)
+            print(f"[Freshness] RECOVERED: {int(freshest_age)}s", flush=True)
+    except Exception as e:
+        print(f"[Freshness Error] {e}", flush=True)
+
+
 def poll_loop():
     global _last_trial_check
     print(f"[poll_loop] 啟動 pid={os.getpid()}", flush=True)
@@ -1480,6 +1529,9 @@ def poll_loop():
             _poll_airdrop(latest_hands)
         except Exception as e:
             print(f"[Poll] _poll_airdrop 崩潰: {e}", flush=True)
+
+        # 數據新鮮度監控
+        _check_data_freshness(latest_hands)
 
         # 試用到期警告：每 60 秒檢查一次
         now_ts = time.time()
