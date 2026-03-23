@@ -645,6 +645,112 @@ def cmd_admin_extend(user_id, token, text):
         push_text(uid, f"🎉 你的使用期限已延長 {days} 天！新到期時間：{new_exp_tw}")
     except: pass
 
+def cmd_admin_query(user_id, token, text):
+    """查詢 REF-XXXX → 顯示該用戶的下線裂變數據"""
+    target = text[2:].strip()
+    if not target:
+        reply_text(token, "格式：查詢 REF-XXXX"); return
+
+    # 找目標用戶
+    if target.upper().startswith("REF-"):
+        r = sb().table("members").select("*").eq("referral_code", target.upper()).execute()
+    else:
+        r = sb().table("members").select("*").eq("user_id", target).execute()
+    if not r.data:
+        reply_text(token, f"找不到：{target}"); return
+
+    m = r.data[0]
+    target_uid = m["user_id"]
+    target_code = m.get("referral_code", "?")
+    is_agent = m.get("is_member") and m.get("expire_at") is None
+    exp = m.get("expire_at")
+    if is_agent:
+        status = "代理（永久）"
+    elif m.get("is_member"):
+        status = "正式會員"
+    elif exp:
+        exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) < exp_dt:
+            status = "試用中"
+        else:
+            status = "已過期"
+    else:
+        status = "未啟用"
+
+    # 遞迴查下線：用 referred_by 鏈追蹤
+    all_downstream = []
+    queue_uids = [target_uid]
+    visited = {target_uid}
+    while queue_uids:
+        batch = queue_uids[:]
+        queue_uids = []
+        for uid in batch:
+            children = sb().table("members").select("user_id,is_member,expire_at,referral_code").eq("referred_by", uid).execute().data or []
+            for child in children:
+                if child["user_id"] not in visited:
+                    visited.add(child["user_id"])
+                    all_downstream.append(child)
+                    queue_uids.append(child["user_id"])
+
+    # 統計
+    now = datetime.now(timezone.utc)
+    total = len(all_downstream)
+    paid = sum(1 for d in all_downstream if d.get("is_member"))
+    trial = sum(1 for d in all_downstream if not d.get("is_member") and d.get("expire_at") and datetime.fromisoformat(d["expire_at"].replace("Z","+00:00")) > now)
+    expired = total - paid - trial
+
+    # 直屬
+    direct = sb().table("members").select("user_id").eq("referred_by", target_uid).execute().data or []
+    direct_count = len(direct)
+
+    reply_text(token,
+        f"📋 查詢 {target_code}\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"狀態：{status}\n"
+        f"直屬：{direct_count} 人\n"
+        f"裂變總計：{total} 人\n"
+        f"  付費：{paid}\n"
+        f"  試用：{trial}\n"
+        f"  過期：{expired}")
+
+def cmd_admin_set_agent(user_id, token, text):
+    """設代理 REF-XXXX → 設為代理，永久使用"""
+    target = text[3:].strip()
+    if not target:
+        reply_text(token, "格式：設代理 REF-XXXX"); return
+
+    if target.upper().startswith("REF-"):
+        r = sb().table("members").select("*").eq("referral_code", target.upper()).execute()
+    else:
+        r = sb().table("members").select("*").eq("user_id", target).execute()
+    if not r.data:
+        reply_text(token, f"找不到：{target}"); return
+
+    m = r.data[0]
+    target_uid = m["user_id"]
+    target_code = m.get("referral_code", "?")
+
+    # 設為正式會員 + 永久（expire_at=null）
+    sb().table("members").update({
+        "is_member": True,
+        "expire_at": None,
+    }).eq("user_id", target_uid).execute()
+
+    # 同步到 agents 表
+    try:
+        sb().table("agents").upsert({
+            "agent_id": target_uid,
+            "is_active": True,
+            "max_extend_days": 31,
+        }).execute()
+    except Exception as e:
+        print(f"[SetAgent] agents 表寫入失敗: {e}", flush=True)
+
+    reply_text(token, f"✅ {target_code} 已設為代理（永久使用）")
+    try:
+        push_text(target_uid, "🎉 你的帳號已升級為代理，永久使用所有功能！")
+    except: pass
+
 def cmd_agent_extend(user_id, token, text, agent):
     """代理延長指令：延長 REF-XXXX X天"""
     parts = text.strip().split()
@@ -1350,7 +1456,11 @@ def handle_message(event):
             "維護開 / 維護關\n"
             "→ 開關維護模式\n\n"
             "測試開 / 測試關\n"
-            "→ 測試模式（只有管理員能操作和收到推送）"
+            "→ 測試模式（只有管理員能操作和收到推送）\n\n"
+            "查詢 REF-XXXX\n"
+            "→ 查看該用戶下線裂變數據\n\n"
+            "設代理 REF-XXXX\n"
+            "→ 設為代理（永久使用）"
         ); return
     if text == "維護開":
         if not is_admin(user_id):
@@ -1372,6 +1482,14 @@ def handle_message(event):
             reply_text(token, "❌ 無權限"); return
         set_test_mode(False)
         reply_text(token, "✅ 測試模式已關閉，所有用戶恢復正常"); return
+    if text.startswith("查詢") or text.startswith("查询"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_query(user_id, token, text); return
+    if text.startswith("設代理") or text.startswith("设代理"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_set_agent(user_id, token, text); return
     if text.startswith("開通"):
         cmd_admin_activate(user_id, token, text); return
     if text.startswith("延長"):
