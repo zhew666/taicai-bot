@@ -1660,7 +1660,7 @@ def poll_loop():
     global _last_trial_check
     print(f"[poll_loop] 啟動 pid={os.getpid()}", flush=True)
     while True:
-        time.sleep(5)
+        time.sleep(2)
         try:
             # 一次 query 取得所有桌台最新手，供 following & airdrop 共用
             latest_hands = get_all_latest_hands()
