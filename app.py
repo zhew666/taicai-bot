@@ -227,12 +227,12 @@ def format_hand(row: dict) -> str:
     dealer_str = f"｜荷官：{dealer}" if dealer and dealer != "未知" else ""
 
     return "\n".join([
-        f"第{tid}廳{dealer_str} | 下一手EV",
+        f"第{tid}廳{dealer_str} | 下一局EV",
         f"  莊：{ev_str(row.get('ev_banker'))}  閒：{ev_str(row.get('ev_player'))}",
         f"  超六：{ev_str(row.get('ev_super6'))}  對子：{ev_str(pair_ev)}",
         f"  和：{ev_str(row.get('ev_tie'))}",
         f"──────────",
-        f"靴{shoe} | 第{hand}手結果",
+        f"靴{shoe} | 第{hand}局結果",
         f"閒牌：{p}",
         f"莊牌：{b}",
     ])
@@ -461,11 +461,11 @@ def cmd_guide(user_id, token, member):
     next_hand = hand + 1
     if best_val > 0:
         msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
-               f"第{next_hand}手 {label} EV={best_val:+.4f} ✅\n"
+               f"第{next_hand}局 {label} EV={best_val:+.4f} ✅\n"
                f"正EV機會，可考慮出手")
     else:
         msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
-               f"第{next_hand}手\n"
+               f"第{next_hand}局\n"
                f"目前最佳選項：{label} EV={best_val:+.4f}\n"
                f"靴牌進行中，持續監控")
     reply_text(token, msg)
@@ -1289,7 +1289,7 @@ def cmd_card_intro(user_id, token):
         "🃏 百家之眼怎麼算？\n"
         "━━━━━━━━━━━━━━\n\n"
         "百家樂用 8 副牌（416 張），\n"
-        "每發一手牌，剩餘牌組就會改變。\n\n"
+        "每發一局牌，剩餘牌組就會改變。\n\n"
         "我們的系統：\n"
         "1️⃣ 即時記錄已出的每一張牌\n"
         "2️⃣ 根據剩餘牌組，窮舉所有可能\n"
@@ -1320,7 +1320,7 @@ def cmd_feature_intro(user_id, token):
         "  開啟後，正 EV 出現立刻推播通知你。\n"
         "  → 點選單「空投掃描」\n\n"
         "▸ 跟隨桌台\n"
-        "  鎖定單一廳口，即時推送每手牌面與 EV。\n"
+        "  鎖定單一廳口，即時推送每局牌面與 EV。\n"
         "  → 輸入「跟隨 3廳」（1~13廳）\n\n"
         "▸ EV 與算牌原理\n"
         "  → 輸入「EV介紹」或「算牌介紹」\n\n"
@@ -1528,7 +1528,7 @@ def handle_message(event):
                 "歡迎加入【百家之眼】\n"
                 "━━━━━━━━━━━━━━\n\n"
                 "我們是一群用數據打牌的人。\n\n"
-                "百家之眼即時追蹤 8 副牌、計算每一手的\n"
+                "百家之眼即時追蹤 8 副牌、計算每一局的\n"
                 "期望值（EV），在機率站到你這邊時通知你。\n\n"
                 "不靠感覺，靠數學。\n\n"
                 "━━━━━━━━━━━━━━\n"
@@ -1575,7 +1575,7 @@ def handle_message(event):
             "　任一桌出現正EV立刻通知\n\n"
             "👁 跟隨 X廳\n"
             "→ 鎖定某張桌即時跟蹤，\n"
-            "　每手推送牌面+EV\n\n"
+            "　每局推送牌面+EV\n\n"
             "🧙 仙人指路\n"
             "→ 一鍵查詢全廳最高EV桌台\n\n"
             "🛑 停止\n"
@@ -1723,7 +1723,7 @@ def _poll_following(latest_hands: dict):
                         following[user_id]["last_shoe"] = cur_shoe
                         following[user_id]["last_hand"] = cur_hand
                 print(f"[Follow] 首次連線，push 確認給 {user_id}", flush=True)
-                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳\n每手新牌即時推送，換靴自動停止\n再次輸入「跟隨」可手動停止")
+                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳\n每局新牌即時推送，換靴自動停止\n再次輸入「跟隨」可手動停止")
                 push_text(user_id, format_hand(row))
                 print(f"[Follow] push 完成", flush=True)
                 continue
@@ -1804,7 +1804,7 @@ def _poll_airdrop(latest_hands: dict):
                     dealer = row.get("dealer") or ""
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
                     next_hand = cur_hand + 1
-                    lines = [f"🪂 +EV空投 第{tnum(tid)}廳{d_str}", f"第{next_hand}手"]
+                    lines = [f"🪂 +EV空投 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
                         lines.append(f"{label}EV：{val:+.4f} ✅")
                     push_text(user_id, "\n".join(lines))
