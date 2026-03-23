@@ -197,12 +197,15 @@ def reply_text(token: str, text: str):
                 time.sleep(1)
 
 def get_latest_hand(table_id: str):
-    r = sb().table("live_tables").select("*").eq("table_id", table_id).execute()
+    r = (sb().table("baccarat_hands").select("*")
+           .eq("table_id", table_id)
+           .order("shoe", desc=True).order("hand_num", desc=True)
+           .limit(1).execute())
     return r.data[0] if r.data else None
 
 def get_all_latest_hands() -> dict:
-    """從 live_tables 取得每桌最新狀態，回傳 {table_id: row}"""
-    rows = sb().table("live_tables").select("*").execute().data
+    """查 latest_hands View 取得每桌最新一手，回傳 {table_id: row}"""
+    rows = sb().table("latest_hands").select("*").execute().data
     return {row["table_id"]: row for row in rows}
 
 def format_hand(row: dict) -> str:
@@ -405,7 +408,7 @@ def cmd_airdrop(user_id, token, text, member):
     # 即時狀態快照
     exp_tw = exp.astimezone(timezone(timedelta(hours=8))).strftime("%H:%M")
     try:
-        fresh = sb().table("live_tables").select("table_id," + ",".join(EV_FIELDS)).execute().data or []
+        fresh = sb().table("latest_hands").select("table_id," + ",".join(EV_FIELDS)).execute().data or []
     except Exception:
         fresh = []
     real = [r for r in fresh if r["table_id"] in ALL_TABLES and r["table_id"] != "TEST01"]
@@ -438,7 +441,7 @@ def cmd_guide(user_id, token, member):
         expired_reply(token, member); return
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
     try:
-        fresh_rows = sb().table("live_tables").select("*").gte("updated_at", cutoff).execute().data
+        fresh_rows = sb().table("latest_hands").select("*").gte("created_at", cutoff).execute().data
     except Exception:
         fresh_rows = []
     if not fresh_rows:
@@ -1624,7 +1627,7 @@ def _check_data_freshness(latest_hands: dict):
         now_utc = datetime.now(timezone.utc)
         freshest_age = None
         for row in latest_hands.values():
-            ca = row.get("updated_at", "") or row.get("created_at", "")
+            ca = row.get("created_at", "")
             if not ca:
                 continue
             dt = datetime.fromisoformat(ca.replace("Z", "+00:00"))
@@ -1727,10 +1730,18 @@ def _poll_following(latest_hands: dict):
                 continue
 
             if cur_hand > last_hand:
-                # live_tables 只有最新一局，直接推
-                if row.get("ev_banker") is None:
-                    continue  # EV 還沒算完
-                push_text(user_id, format_hand(row))
+                # 只推送 EV 已回填的手牌（ev_banker 不為 null）
+                new_rows = (sb().table("baccarat_hands").select("*")
+                              .eq("table_id", tid).eq("shoe", cur_shoe)
+                              .gt("hand_num", last_hand)
+                              .not_.is_("ev_banker", "null")
+                              .order("hand_num").execute()).data
+                if not new_rows:
+                    continue  # EV 還沒算完，等下次 poll
+                for i, r in enumerate(new_rows):
+                    if i > 0:
+                        time.sleep(0.3)
+                    push_text(user_id, format_hand(r))
                 with follow_lock:
                     if user_id in following:
                         following[user_id]["last_shoe"] = cur_shoe
@@ -1754,11 +1765,11 @@ def _poll_airdrop(latest_hands: dict):
               f"監控用戶: {len(users)}, 上次觸發: {last}", flush=True)
     # 獨立查 positive_ev_now View，只取有正 EV 的桌
     try:
-        pos_rows = sb().table("positive_ev").select("*").execute().data
+        pos_rows = sb().table("positive_ev_now").select("*").execute().data
         pos_hands = {row["table_id"]: row for row in pos_rows
                      if row["table_id"] in ALL_TABLES}
     except Exception as e:
-        print(f"[Airdrop] 查 positive_ev 失敗: {e}", flush=True)
+        print(f"[Airdrop] 查 positive_ev_now 失敗: {e}", flush=True)
         pos_hands = {}
     active_tables = len(latest_hands)
     for user_id, state in users.items():
