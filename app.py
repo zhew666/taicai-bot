@@ -71,6 +71,7 @@ airdrop_lock = threading.Lock()
 _cooldown    = {}   # user_id → last_cmd_time
 _pending_extend = {}  # agent_user_id → {target_ref, days, expire_ts}
 _pending_bind   = {}  # user_id → {"state": "awaiting_account", "expire_ts": ...}
+_pending_follow = {}  # user_id → {"expire_ts": ...}  二段式跟隨
 _poll_stats  = {"count": 0, "airdrop_triggers": 0, "last_trigger": None}  # poll 健康監控
 _push_lock   = threading.Lock()
 _last_push   = 0  # 上次 push 的時間戳
@@ -475,24 +476,15 @@ def cmd_follow(user_id, token, text, member):
             if user_id in following:
                 old_tid = following.pop(user_id)["table_id"]
                 reply_text(token, f"👁 已停止跟隨{tnum(old_tid)}"); return
+        _pending_follow[user_id] = {"expire_ts": time.time() + 30}
         if plat == "DG":
             reply_text(token,
-                "👁 請選擇要跟隨的桌號\n"
-                "━━━━━━━━━━━━━━\n"
-                "輸入：跟隨 01~07\n\n"
-                "例如：\n"
-                "  跟隨 01 → DG 第1桌\n"
-                "  跟隨 05 → DG 第5桌\n\n"
-                f"📡 場館：DG（{len(valid_tables)} 桌在線）")
+                "👁 請輸入桌號：01~07\n"
+                f"📡 DG（{len(valid_tables)} 桌在線）")
         else:
             reply_text(token,
-                "👁 請選擇要跟隨的廳號\n"
-                "━━━━━━━━━━━━━━\n"
-                "輸入：跟隨 X廳（1~13）\n\n"
-                "例如：\n"
-                "  跟隨 3廳 → 鎖定第3廳\n"
-                "  跟隨 7廳 → 鎖定第7廳\n\n"
-                "📡 場館：MT 13 廳")
+                "👁 請輸入廳號：1~13\n"
+                "📡 MT 13 廳")
         return
 
     # 已在跟隨同一廳 → 關閉
@@ -1729,6 +1721,15 @@ def handle_message(event):
     # 代理確認（「確定」）
     if text == "確定" and user_id in _pending_extend:
         cmd_agent_confirm(user_id, token); return
+
+    # 二段式跟隨（捕捉用戶回覆的桌號）
+    if user_id in _pending_follow:
+        pf = _pending_follow.get(user_id, {})
+        if time.time() < pf.get("expire_ts", 0):
+            _pending_follow.pop(user_id, None)
+            cmd_follow(user_id, token, "跟隨" + text, member)
+            return
+        _pending_follow.pop(user_id, None)
 
     # 二段式 GW 帳號綁定（捕捉用戶回覆）
     if user_id in _pending_bind:
