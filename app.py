@@ -468,11 +468,10 @@ def cmd_follow(user_id, token, text, member):
             reply_text(token,
                 "👁 請選擇要跟隨的桌號\n"
                 "━━━━━━━━━━━━━━\n"
-                "標準桌：跟隨 01~07\n"
-                "性感桌：跟隨 S01~S07\n\n"
+                "輸入：跟隨 01~07\n\n"
                 "例如：\n"
-                "  跟隨 01 → DG 標準桌\n"
-                "  跟隨 S01 → DG 性感桌\n\n"
+                "  跟隨 01 → DG 第1桌\n"
+                "  跟隨 05 → DG 第5桌\n\n"
                 f"📡 場館：DG（{len(valid_tables)} 桌在線）")
         else:
             reply_text(token,
@@ -1647,7 +1646,7 @@ def handle_message(event):
                 dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
             except:
                 dg_count = 0
-            reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n標準桌：01~07\n性感桌：S01~S07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
+            reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
         reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/空投/仙人指路 將使用 MT 數據"); return
     if text in ("切換DG", "切換dg", "切換Dg"):
         sb().table("members").update({"game": "DG"}).eq("user_id", user_id).execute()
@@ -1659,7 +1658,7 @@ def handle_message(event):
             dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
         except:
             dg_count = 0
-        reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n標準桌：01~07\n性感桌：S01~S07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
+        reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
     if text in ("切換MT", "切換mt", "切換Mt"):
         sb().table("members").update({"game": "MT"}).eq("user_id", user_id).execute()
         with follow_lock:
@@ -1755,7 +1754,7 @@ def handle_message(event):
     if text in ("說明", "说明", "help", "指令", "Help", "HELP"):
         plat_now = get_user_platform(member)
         plat_info = "DG 14 桌" if plat_now == "DG" else "MT 13 廳"
-        follow_hint = "跟隨 01（標準）/ 跟隨 S01（性感）" if plat_now == "DG" else "跟隨 X廳（1~13）"
+        follow_hint = "跟隨 01~07" if plat_now == "DG" else "跟隨 X廳（1~13）"
         reply_text(token,
             f"🃏 百家之眼 指令說明\n"
             f"📡 目前場館：{plat_info}（輸入「切換」可切換）\n"
