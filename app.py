@@ -38,7 +38,27 @@ TG_GW_CHAT_IDS  = [x.strip() for x in os.environ.get("TELEGRAM_GW_CHAT_IDS", "")
 TRIAL_HOURS    = 1
 WARN_MINUTES   = 15
 GW_TIERS       = {5000: 7, 10000: 31}  # 儲值金額 → 天數
-ALL_TABLES   = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A", "TEST01"]
+ALL_TABLES_MT = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A", "TEST01"]
+ALL_TABLES    = ALL_TABLES_MT  # 向下相容
+
+# DG 標準桌映射：01~07 → DGR1~DGR7
+DG_STD_MAP  = {f"DGR{i}": f"{i:02d}" for i in range(1, 8)}
+DG_STD_REV  = {v: k for k, v in DG_STD_MAP.items()}
+# DG 性感桌：動態映射 S01~S07（每 60 秒刷新）
+_dg_sexy_cache = {"fwd": {}, "rev": {}, "ts": 0}
+
+def _refresh_dg_sexy():
+    now = time.time()
+    if now - _dg_sexy_cache["ts"] < 60:
+        return
+    try:
+        rows = sb().table("live_tables").select("table_id").eq("platform", "DG").like("table_id", "DGS%").execute().data
+        sids = sorted([r["table_id"] for r in rows]) if rows else []
+        _dg_sexy_cache["fwd"] = {sid: f"S{i+1:02d}" for i, sid in enumerate(sids)}
+        _dg_sexy_cache["rev"] = {v: k for k, v in _dg_sexy_cache["fwd"].items()}
+        _dg_sexy_cache["ts"] = now
+    except:
+        pass
 EV_FIELDS    = ["ev_banker", "ev_player", "ev_super6", "ev_pair_p", "ev_pair_b", "ev_tie"]
 EV_LABELS    = {"ev_banker": "莊", "ev_player": "閒", "ev_tie": "和",
                 "ev_super6": "超六", "ev_pair_p": "閒對", "ev_pair_b": "莊對"}
@@ -129,17 +149,46 @@ def ensure_poll_running():
 
 # ── 工具函式 ──────────────────────────────────────────────
 def tnum(table_id: str) -> str:
+    if table_id.startswith("DGR"):
+        return DG_STD_MAP.get(table_id, table_id)  # DGR1→01
+    if table_id.startswith("DGS"):
+        _refresh_dg_sexy()
+        return _dg_sexy_cache["fwd"].get(table_id, table_id)  # DGS348→S01
     return table_id.replace("BAG", "").lstrip("0") or table_id
 
 _CN_NUM = {"一":1,"二":2,"三":3,"四":4,"五":5,"六":6,"七":7,
             "八":8,"九":9,"十":10,"十一":11,"十二":12,"十三":13}
 
-def normalize_table(text: str):
+def normalize_table(text: str, platform: str = "MT"):
     t = text.strip()
     # 去掉常見多餘字
     for c in ("廳","號","桌","台","第","厅"):
         t = t.replace(c, "")
     t = t.strip()
+    # DG 模式
+    if platform == "DG":
+        u = t.upper()
+        # 直接輸入完整 ID：DGR1, DGS348
+        if u.startswith("DG"):
+            return u
+        # 輸入 01~07 → DGR1~DGR7
+        if u.isdigit():
+            n = u.zfill(2)
+            if n in DG_STD_REV:
+                return DG_STD_REV[n]
+            return None
+        # 輸入 S01~S07 → 查性感桌映射
+        if u.startswith("S") and u[1:].isdigit():
+            sn = u[0] + u[1:].zfill(2)  # S1→S01
+            _refresh_dg_sexy()
+            if sn in _dg_sexy_cache["rev"]:
+                return _dg_sexy_cache["rev"][sn]
+            return None
+        # 輸入 R1, R2 等
+        if u.startswith("R"):
+            return f"DG{u}"
+        return None
+    # MT 模式
     if t.upper() in ("3A", "03A"):
         return "BAG03A"
     if t.upper() in ("TEST01", "TEST1", "TEST"):
@@ -196,20 +245,59 @@ def reply_text(token: str, text: str):
             else:
                 time.sleep(1)
 
+def get_user_platform(member: dict) -> str:
+    """取得用戶偏好平台"""
+    return member.get("game", "MT") or "MT"
+
+def get_platform_tables(platform: str) -> list:
+    """取得該平台的有效桌號列表（MT 固定，DG 從 DB 動態取）"""
+    if platform == "DG":
+        try:
+            rows = sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data
+            return [r["table_id"] for r in rows] if rows else []
+        except:
+            return []
+    return ALL_TABLES_MT
+
 def get_latest_hand(table_id: str):
     r = sb().table("live_tables").select("*").eq("table_id", table_id).execute()
     return r.data[0] if r.data else None
 
-def get_all_latest_hands() -> dict:
-    """從 live_tables 取得每桌最新狀態"""
-    rows = sb().table("live_tables").select("*").execute().data
+def get_all_latest_hands(platform: str = None) -> dict:
+    """從 live_tables 取得每桌最新狀態，可選平台過濾"""
+    q = sb().table("live_tables").select("*")
+    if platform:
+        q = q.eq("platform", platform)
+    rows = q.execute().data
     return {row["table_id"]: row for row in rows}
+
+def _card_point(card_str):
+    """牌面字串 → 百家樂點數（♠A→1, ♥10→0, ♦K→0）"""
+    if not card_str or card_str == "-":
+        return 0
+    r = card_str[1:]  # 去掉花色符號
+    if r == "A": return 1
+    if r in ("10", "J", "Q", "K"): return 0
+    try: return int(r)
+    except: return 0
+
+def _hand_result(row: dict) -> str:
+    """計算上局結果 → 🔴莊贏 / 🔵閒贏 / 🟢和局"""
+    p_pts = sum(_card_point(row.get(f"p{i}")) for i in range(1, 4)) % 10
+    b_pts = sum(_card_point(row.get(f"b{i}")) for i in range(1, 4)) % 10
+    if b_pts > p_pts:
+        return f"🔴莊 {b_pts}:{p_pts}"
+    elif p_pts > b_pts:
+        return f"🔵閒 {p_pts}:{b_pts}"
+    else:
+        return f"🟢和 {p_pts}:{b_pts}"
 
 def format_hand(row: dict) -> str:
     """回傳單則訊息：EV在前（置頂通知可見莊閒），牌面結果在後"""
     p = " ".join(str(row.get(f"p{i}","-")) for i in range(1,4) if row.get(f"p{i}"))
     b = " ".join(str(row.get(f"b{i}","-")) for i in range(1,4) if row.get(f"b{i}"))
     tid    = tnum(row['table_id'])
+    plat   = row.get('platform', 'MT')
     shoe   = row['shoe']
     hand   = row['hand_num']
     def ev_str(val):
@@ -224,13 +312,22 @@ def format_hand(row: dict) -> str:
     dealer_str = f"｜荷官：{dealer}" if dealer and dealer != "未知" else ""
 
     next_hand = hand + 1
+    plat_tag = f"[{plat}] " if plat == "DG" else ""
+    result = _hand_result(row)
+
+    # 莊閒 EV 比較 → 推薦標記放前面
+    ev_b = row.get("ev_banker") or 0
+    ev_p = row.get("ev_player") or 0
+    b_prefix = "🔴" if ev_b > ev_p and ev_b > 0 else "  "
+    p_prefix = "🔵" if ev_p > ev_b and ev_p > 0 else "  "
+
     return "\n".join([
-        f"第{tid}廳{dealer_str} | 第{next_hand}局EV",
-        f"  莊：{ev_str(row.get('ev_banker'))}  閒：{ev_str(row.get('ev_player'))}",
+        f"{plat_tag}第{tid}廳{dealer_str} | 第{next_hand}局EV",
+        f"  {b_prefix}莊：{ev_str(row.get('ev_banker'))}  {p_prefix}閒：{ev_str(row.get('ev_player'))}",
         f"  超六：{ev_str(row.get('ev_super6'))}  對子：{ev_str(pair_ev)}",
         f"  和：{ev_str(row.get('ev_tie'))}",
         f"──────────",
-        f"靴{shoe} | 第{hand}局結果",
+        f"靴{shoe} | 第{hand}局結果 {result}",
         f"閒牌：{p}",
         f"莊牌：{b}",
     ])
@@ -356,22 +453,36 @@ def cmd_follow(user_id, token, text, member):
     member = activate_trial(user_id, member)
     if not is_allowed(member):
         expired_reply(token, member); return
-    tid = normalize_table(text[2:].strip())
+    plat = get_user_platform(member)
+    valid_tables = get_platform_tables(plat)
+    tid = normalize_table(text[2:].strip(), plat)
 
     # 沒帶廳號：如果正在跟隨就關閉，否則顯示引導
-    if not tid or tid not in ALL_TABLES:
+    if not tid or (valid_tables and tid not in valid_tables):
         with follow_lock:
             if user_id in following:
                 old_tid = following.pop(user_id)["table_id"]
-                reply_text(token, f"👁 已停止跟隨第{tnum(old_tid)}廳"); return
-        reply_text(token,
-            "👁 請選擇要跟隨的廳號\n"
-            "━━━━━━━━━━━━━━\n"
-            "輸入：跟隨 X廳（1~13）\n\n"
-            "例如：\n"
-            "  跟隨 3廳 → 鎖定第3廳\n"
-            "  跟隨 7廳 → 鎖定第7廳\n\n"
-            "📡 支援場館：MT 13 廳"); return
+                reply_text(token, f"👁 已停止跟隨{tnum(old_tid)}"); return
+        if plat == "DG":
+            reply_text(token,
+                "👁 請選擇要跟隨的桌號\n"
+                "━━━━━━━━━━━━━━\n"
+                "標準桌：跟隨 01~07\n"
+                "性感桌：跟隨 S01~S07\n\n"
+                "例如：\n"
+                "  跟隨 01 → DG 標準桌\n"
+                "  跟隨 S01 → DG 性感桌\n\n"
+                f"📡 場館：DG（{len(valid_tables)} 桌在線）")
+        else:
+            reply_text(token,
+                "👁 請選擇要跟隨的廳號\n"
+                "━━━━━━━━━━━━━━\n"
+                "輸入：跟隨 X廳（1~13）\n\n"
+                "例如：\n"
+                "  跟隨 3廳 → 鎖定第3廳\n"
+                "  跟隨 7廳 → 鎖定第7廳\n\n"
+                "📡 場館：MT 13 廳")
+        return
 
     # 已在跟隨同一廳 → 關閉
     with follow_lock:
@@ -403,12 +514,15 @@ def cmd_airdrop(user_id, token, text, member):
         airdrop[user_id] = {"expire_at": exp, "notified": {}, "push_count": 0}
 
     # 即時狀態快照
+    plat = get_user_platform(member)
     exp_tw = exp.astimezone(timezone(timedelta(hours=8))).strftime("%H:%M")
     try:
-        fresh = sb().table("live_tables").select("table_id," + ",".join(EV_FIELDS)).execute().data or []
+        q = sb().table("live_tables").select("table_id,platform," + ",".join(EV_FIELDS))
+        q = q.eq("platform", plat)
+        fresh = q.execute().data or []
     except Exception:
         fresh = []
-    real = [r for r in fresh if r["table_id"] in ALL_TABLES and r["table_id"] != "TEST01"]
+    real = [r for r in fresh if r["table_id"] != "TEST01"]
     active = len(real)
     pos = sum(1 for r in real if any(r.get(f) and r[f] > 0 for f in EV_FIELDS))
 
@@ -436,9 +550,10 @@ def cmd_guide(user_id, token, member):
     member = activate_trial(user_id, member)
     if not is_allowed(member):
         expired_reply(token, member); return
+    plat = get_user_platform(member)
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
     try:
-        fresh_rows = sb().table("live_tables").select("*").gte("updated_at", cutoff).execute().data
+        fresh_rows = sb().table("live_tables").select("*").eq("platform", plat).gte("updated_at", cutoff).execute().data
     except Exception:
         fresh_rows = []
     if not fresh_rows:
@@ -457,12 +572,23 @@ def cmd_guide(user_id, token, member):
     dealer = best_row.get("dealer") or ""
     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
     next_hand = hand + 1
+    # 判斷莊/閒推薦標記
+    ev_b = best_row.get("ev_banker") or 0
+    ev_p = best_row.get("ev_player") or 0
+    if ev_b > ev_p and ev_b > 0:
+        rec = "🔴莊"
+    elif ev_p > ev_b and ev_p > 0:
+        rec = "🔵閒"
+    else:
+        rec = None
+    plat_tag = f"[{plat}] " if plat == "DG" else ""
     if best_val > 0:
-        msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
+        rec_str = f"  {rec}" if rec else ""
+        msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局 {label} EV={best_val:+.4f} ✅\n"
                f"正EV機會，可考慮出手")
     else:
-        msg = (f"🧙 仙人指路 第{t}廳{d_str}\n"
+        msg = (f"🧙 仙人指路 {plat_tag}第{t}廳\n"
                f"第{next_hand}局\n"
                f"目前最佳選項：{label} EV={best_val:+.4f}\n"
                f"靴牌進行中，持續監控")
@@ -482,42 +608,63 @@ def cmd_my_code(user_id, token, member):
         f"推薦好友使用推薦碼：每人 +1 天\n"
         f"好友完成正式註冊：+7 天")
 
+def get_member_type(user_id: str, member: dict) -> str:
+    """回傳會員類型標籤"""
+    if is_admin(user_id):
+        return "👑 管理員"
+    agent = get_agent(user_id)
+    if agent:
+        return "💼 代理"
+    if member.get("is_member"):
+        return "✅ 正式帳號"
+    exp = member.get("expire_at", "")
+    if exp:
+        exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+        if exp_dt > datetime.now(timezone.utc):
+            return "⏳ 試用會員"
+    return "⏰ 試用已結束"
+
+def get_expire_str(member: dict) -> str:
+    """回傳到期時間描述"""
+    if member.get("is_member"):
+        return "永久使用"
+    exp = member.get("expire_at", "")
+    if not exp:
+        return "已結束"
+    exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+    exp_str = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+    remaining = exp_dt - datetime.now(timezone.utc)
+    mins = int(remaining.total_seconds() / 60)
+    if mins <= 0:
+        return "已結束"
+    days = mins // 1440
+    hours = (mins % 1440) // 60
+    if days >= 7:
+        return f"至 {exp_str}（約 {days} 天）"
+    elif days >= 1:
+        return f"剩餘約 {days} 天（{exp_str}）"
+    elif hours >= 1:
+        return f"剩餘約 {hours} 小時（{exp_str}）"
+    return f"剩餘約 {mins} 分鐘（{exp_str}）"
+
 def cmd_intro(user_id, token, member):
     code = member.get("referral_code", "N/A")
-    exp  = member.get("expire_at", "")
-    is_m = member.get("is_member", False)
-
-    if is_m:
-        status = "✅ 正式會員（永久使用）"
-    elif exp:
-        exp_dt  = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-        exp_str = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
-        remaining = exp_dt - datetime.now(timezone.utc)
-        mins = int(remaining.total_seconds() / 60)
-        days = mins // 1440
-        hours = (mins % 1440) // 60
-        if mins <= 0:
-            status = "⏰ 試用已結束"
-        elif days >= 7:
-            status = f"✅ 使用期限至 {exp_str}（剩餘約 {days} 天）"
-        elif days >= 1:
-            status = f"⏳ 剩餘約 {days} 天（到期：{exp_str}）"
-        elif hours >= 1:
-            status = f"⏳ 試用中，剩餘約 {hours} 小時（到期：{exp_str}）"
-        else:
-            status = f"⏳ 試用中，剩餘約 {mins} 分鐘（到期：{exp_str}）"
-    else:
-        status = "⏰ 試用已結束"
+    mtype = get_member_type(user_id, member)
+    exp_info = get_expire_str(member)
+    plat = get_user_platform(member)
+    plat_str = f"DG" if plat == "DG" else "MT 13 廳"
 
     reply_text(token,
         f"📋 帳號狀態：\n"
-        f"{status}\n"
-        f"📡 支援場館：MT 13 廳\n\n"
+        f"身份：{mtype}\n"
+        f"期限：{exp_info}\n"
+        f"📡 目前場館：{plat_str}\n\n"
         f"🔗 你的專屬推薦碼：{code}\n"
         f"・每邀請 1 人試用 → +1 天\n"
         f"・好友完成正式註冊 → +7 天\n\n"
         f"正式註冊：{REGISTER_URL}\n\n"
-        f"💡 輸入「指令」查詢更多功能")
+        f"💡 輸入「指令」查詢更多功能\n"
+        f"💡 輸入「切換」可切換 MT/DG")
 
 def get_agent(user_id: str):
     """查詢 agents 表，回傳 agent row 或 None"""
@@ -1455,6 +1602,8 @@ def handle_message(event):
             "→ 開關維護模式\n\n"
             "測試開 / 測試關\n"
             "→ 測試模式（只有管理員能操作和收到推送）\n\n"
+            "切換 / 切換DG / 切換MT\n"
+            "→ 切換數據平台（所有用戶可用）\n\n"
             "查詢 REF-XXXX\n"
             "→ 查看該用戶下線裂變數據\n\n"
             "設代理 REF-XXXX\n"
@@ -1480,6 +1629,39 @@ def handle_message(event):
             reply_text(token, "❌ 無權限"); return
         set_test_mode(False)
         reply_text(token, "✅ 測試模式已關閉，所有用戶恢復正常"); return
+    if text in ("切換", "切換平台", "切換遊戲"):
+        cur = member.get("game") or "MT"
+        new_plat = "DG" if cur == "MT" else "MT"
+        sb().table("members").update({"game": new_plat}).eq("user_id", user_id).execute()
+        with follow_lock:
+            following.pop(user_id, None)
+        with airdrop_lock:
+            airdrop.pop(user_id, None)
+        if new_plat == "DG":
+            try:
+                dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
+            except:
+                dg_count = 0
+            reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n標準桌：01~07\n性感桌：S01~S07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
+        reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/空投/仙人指路 將使用 MT 數據"); return
+    if text in ("切換DG", "切換dg", "切換Dg"):
+        sb().table("members").update({"game": "DG"}).eq("user_id", user_id).execute()
+        with follow_lock:
+            following.pop(user_id, None)
+        with airdrop_lock:
+            airdrop.pop(user_id, None)
+        try:
+            dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
+        except:
+            dg_count = 0
+        reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n標準桌：01~07\n性感桌：S01~S07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
+    if text in ("切換MT", "切換mt", "切換Mt"):
+        sb().table("members").update({"game": "MT"}).eq("user_id", user_id).execute()
+        with follow_lock:
+            following.pop(user_id, None)
+        with airdrop_lock:
+            airdrop.pop(user_id, None)
+        reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/空投/仙人指路 將使用 MT 數據"); return
     if text.startswith("查詢") or text.startswith("查询"):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
@@ -1752,15 +1934,25 @@ def _poll_airdrop(latest_hands: dict):
         print(f"[Airdrop Poll] {_poll_stats['count']} 次查詢, "
               f"{_poll_stats['airdrop_triggers']} 次觸發, "
               f"監控用戶: {len(users)}, 上次觸發: {last}", flush=True)
-    # 查 positive_ev View，只取有正 EV 的桌
+    # 查 positive_ev View，取全部正 EV 桌（按平台分組給各用戶）
     try:
         pos_rows = sb().table("positive_ev").select("*").execute().data
-        pos_hands = {row["table_id"]: row for row in pos_rows
-                     if row["table_id"] in ALL_TABLES}
+        pos_hands_mt = {row["table_id"]: row for row in pos_rows
+                        if row.get("platform") == "MT" and row["table_id"] != "TEST01"}
+        pos_hands_dg = {row["table_id"]: row for row in pos_rows
+                        if row.get("platform") == "DG"}
     except Exception as e:
         print(f"[Airdrop] 查 positive_ev 失敗: {e}", flush=True)
-        pos_hands = {}
+        pos_hands_mt, pos_hands_dg = {}, {}
     active_tables = len(latest_hands)
+    # 預載用戶平台偏好（批次查一次，避免每用戶都查 DB）
+    _user_plats = {}
+    try:
+        uids = list(users.keys())
+        mr = sb().table("members").select("user_id,game").in_("user_id", uids).execute()
+        _user_plats = {m["user_id"]: (m.get("game") or "MT") for m in (mr.data or [])}
+    except:
+        pass
     for user_id, state in users.items():
         # 測試模式：跳過非管理員
         if _test_mode and not is_admin(user_id):
@@ -1777,6 +1969,8 @@ def _poll_airdrop(latest_hands: dict):
                     airdrop.pop(user_id, None)
                 continue
 
+            user_plat = _user_plats.get(user_id, "MT")
+            pos_hands = pos_hands_dg if user_plat == "DG" else pos_hands_mt
             for tid, row in pos_hands.items():
                 cur_hand = row["hand_num"]
                 if cur_hand <= state["notified"].get(tid, 0):
