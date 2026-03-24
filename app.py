@@ -672,7 +672,7 @@ def cmd_intro(user_id, token, member):
         f"正式註冊：{REGISTER_URL}\n\n"
         f"💡 輸入「指令」查詢更多功能\n"
         f"💡 輸入「切換」可切換 MT/DG\n"
-        f"💡 輸入「繼續」了解付費方案")
+        f"💡 輸入「繼續」了解方案")
 
 def get_agent(user_id: str):
     """查詢 agents 表，回傳 agent row 或 None"""
