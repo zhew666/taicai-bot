@@ -556,7 +556,8 @@ def cmd_guide(user_id, token, member):
     plat = get_user_platform(member)
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
     try:
-        fresh_rows = sb().table("live_tables").select("*").eq("platform", plat).gte("updated_at", cutoff).execute().data
+        fresh_rows = [r for r in sb().table("live_tables").select("*").eq("platform", plat).gte("updated_at", cutoff).execute().data
+                      if not r["table_id"].startswith("DGS")]
     except Exception:
         fresh_rows = []
     if not fresh_rows:
