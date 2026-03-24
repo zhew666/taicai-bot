@@ -254,7 +254,8 @@ def get_platform_tables(platform: str) -> list:
     if platform == "DG":
         try:
             rows = sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data
-            return [r["table_id"] for r in rows] if rows else []
+            # 暫時隱藏性感桌（DGS*），數據修正後再開放
+            return [r["table_id"] for r in rows if not r["table_id"].startswith("DGS")] if rows else []
         except:
             return []
     return ALL_TABLES_MT
@@ -1425,7 +1426,7 @@ def cmd_ev_intro(user_id, token):
         "在正EV出現時第一時間通知你。\n\n"
         "━━━━━━━━━━━━━━\n\n"
         "如果還是難以理解，直接輸入「仙人指路」\n"
-        "系統會從十幾個遊戲廳中，\n"
+        "系統會從 MT + DG 近 30 張桌中，\n"
         "即時選出當下最佳的投注選項給你。\n"
         "這是目前全網最強的百家樂輔助功能。")
 
@@ -1446,7 +1447,7 @@ def cmd_card_intro(user_id, token):
         "不是靠人腦估算。\n\n"
         "━━━━━━━━━━━━━━\n\n"
         "如果還是難以理解，直接輸入「仙人指路」\n"
-        "系統會從十幾個遊戲廳中，\n"
+        "系統會從 MT + DG 近 30 張桌中，\n"
         "即時選出當下最佳的投注選項給你。\n"
         "這是目前全網最強的百家樂輔助功能。")
 
@@ -1455,18 +1456,21 @@ def cmd_feature_intro(user_id, token):
     reply_text(token,
         "百家之眼 ── 功能介紹\n"
         "━━━━━━━━━━━━━━\n\n"
-        "即時監控 MT 全 13 廳百家樂，\n"
+        "即時監控兩大場館百家樂：\n"
+        "  MT 13 廳 ＋ DG 14 桌\n"
         "8 副牌完整追蹤，計算 6 種注區 EV：\n"
         "莊 / 閒 / 和 / 超級六 / 閒對 / 莊對\n\n"
         "▸ 仙人指路\n"
-        "  一鍵掃描全廳，列出目前最值得關注的投注。\n"
+        "  一鍵掃描全桌，推薦🔴莊或🔵閒。\n"
         "  → 點選單「仙人指路」\n\n"
         "▸ 空投掃描\n"
         "  開啟後，正 EV 出現立刻推播通知你。\n"
         "  → 點選單「空投掃描」\n\n"
         "▸ 跟隨桌台\n"
-        "  鎖定單一廳口，即時推送每局牌面與 EV。\n"
-        "  → 輸入「跟隨 3廳」（1~13廳）\n\n"
+        "  鎖定單桌，即時推送牌面、EV 與結果。\n"
+        "  → MT：跟隨 3廳 / DG：跟隨 01\n\n"
+        "▸ 切換場館\n"
+        "  → 輸入「切換」即可在 MT / DG 間切換\n\n"
         "▸ EV 與算牌原理\n"
         "  → 輸入「EV介紹」或「算牌介紹」\n\n"
         "━━━━━━━━━━━━━━\n"
@@ -1480,7 +1484,8 @@ def cmd_feature_intro(user_id, token):
         "8 副牌、416 張牌，每發一張牌，\n"
         "剩餘牌組的機率結構就在改變。\n\n"
         "百家之眼做的事很單純：\n"
-        "把這些數學算好，即時告訴你。\n\n"
+        "同時監控 MT + DG 兩大場館，\n"
+        "把數學算好，即時告訴你。\n\n"
         "我們不賣牌路、不帶單、不保證贏，\n"
         "只提供透明的數據，讓你自己判斷。\n\n"
         "━━━━━━━━━━━━━━\n"
@@ -1710,10 +1715,12 @@ def handle_message(event):
                 "我們是一群用數據打牌的人。\n\n"
                 "百家之眼即時追蹤 8 副牌、計算每一局的\n"
                 "期望值（EV），在機率站到你這邊時通知你。\n\n"
+                "支援場館：MT 13 廳 ＋ DG 14 桌\n"
                 "不靠感覺，靠數學。\n\n"
                 "━━━━━━━━━━━━━━\n"
                 "🎯 馬上試試 → 點選單「仙人指路」\n"
                 "📖 想了解更多 → 輸入「功能介紹」\n"
+                "🔄 切換場館 → 輸入「切換」\n"
                 "🎁 有推薦碼 → 輸入「好友推薦碼 REF-XXXX」")
             return
         except Exception as e:
@@ -1746,20 +1753,25 @@ def handle_message(event):
     if text in ("聊天室", "群組", "社群"):
         reply_text(token, "💬 加入百家之眼聊天室\n\n👉 https://line.me/ti/g/ddjjpjznQL"); return
     if text in ("說明", "说明", "help", "指令", "Help", "HELP"):
+        plat_now = get_user_platform(member)
+        plat_info = "DG 14 桌" if plat_now == "DG" else "MT 13 廳"
+        follow_hint = "跟隨 01（標準）/ 跟隨 S01（性感）" if plat_now == "DG" else "跟隨 X廳（1~13）"
         reply_text(token,
-            "🃏 百家之眼 指令說明\n"
-            "📡 支援場館：MT 13 廳\n"
+            f"🃏 百家之眼 指令說明\n"
+            f"📡 目前場館：{plat_info}（輸入「切換」可切換）\n"
             "━━━━━━━━━━━━━━\n\n"
             "🪂 空投 X\n"
-            "→ 開啟全廳掃描 X 小時（1~3），\n"
+            "→ 開啟全桌掃描 X 小時（1~3），\n"
             "　任一桌出現正EV立刻通知\n\n"
-            "👁 跟隨 X廳\n"
+            f"👁 {follow_hint}\n"
             "→ 鎖定某張桌即時跟蹤，\n"
             "　每局推送牌面+EV\n\n"
             "🧙 仙人指路\n"
-            "→ 一鍵查詢全廳最高EV桌台\n\n"
+            "→ 一鍵查詢最高EV桌台\n\n"
             "🛑 停止\n"
             "→ 停止跟隨/空投\n\n"
+            "🔄 切換\n"
+            "→ 切換 MT / DG 場館\n\n"
             "━━━━━━━━━━━━━━\n\n"
             "📋 我的推薦碼 → 查推薦碼與期限\n"
             "🎁 好友推薦碼 REF-XXXX → 輸入推薦碼\n"
@@ -1940,7 +1952,7 @@ def _poll_airdrop(latest_hands: dict):
         pos_hands_mt = {row["table_id"]: row for row in pos_rows
                         if row.get("platform") == "MT" and row["table_id"] != "TEST01"}
         pos_hands_dg = {row["table_id"]: row for row in pos_rows
-                        if row.get("platform") == "DG"}
+                        if row.get("platform") == "DG" and not row["table_id"].startswith("DGS")}
     except Exception as e:
         print(f"[Airdrop] 查 positive_ev 失敗: {e}", flush=True)
         pos_hands_mt, pos_hands_dg = {}, {}
