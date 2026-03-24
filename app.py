@@ -671,7 +671,8 @@ def cmd_intro(user_id, token, member):
         f"・好友完成正式註冊 → +7 天\n\n"
         f"正式註冊：{REGISTER_URL}\n\n"
         f"💡 輸入「指令」查詢更多功能\n"
-        f"💡 輸入「切換」可切換 MT/DG")
+        f"💡 輸入「切換」可切換 MT/DG\n"
+        f"💡 輸入「繼續」了解付費方案")
 
 def get_agent(user_id: str):
     """查詢 agents 表，回傳 agent row 或 None"""
@@ -1103,10 +1104,13 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
         amount = int(parts[2])
     except ValueError:
         return "金額請輸入數字"
-    days = GW_TIERS.get(amount)
-    if not days:
-        tiers_str = "、".join(f"{k}→{v}天" for k, v in sorted(GW_TIERS.items()))
-        return f"金額不在方案內\n可用方案：{tiers_str}"
+    # 彈性金額判斷：4900~9599→7天，9600+→31天
+    if amount >= 9600:
+        days = 31
+    elif amount >= 4900:
+        days = 7
+    else:
+        return f"金額不足\n最低 4,900 點 → 7 天\n10,000 點 → 31 天"
     r = sb().table("members").select("*").eq("gw_account", account).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
