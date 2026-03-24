@@ -620,7 +620,10 @@ def get_member_type(user_id: str, member: dict) -> str:
     exp = member.get("expire_at", "")
     if exp:
         exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-        if exp_dt > datetime.now(timezone.utc):
+        remaining = exp_dt - datetime.now(timezone.utc)
+        if remaining.total_seconds() > 86400:  # > 24 小時 = 正式
+            return "✅ 正式帳號"
+        if remaining.total_seconds() > 0:
             return "⏳ 試用會員"
     return "⏰ 試用已結束"
 
