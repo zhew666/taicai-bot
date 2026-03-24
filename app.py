@@ -100,6 +100,17 @@ def tg_notify_gw(text: str):
     for chat_id in TG_GW_CHAT_IDS:
         tg_send(chat_id, text)
 
+def is_platform_enabled(platform: str) -> bool:
+    """檢查場館是否開放（預設開放）"""
+    try:
+        r = sb().table("system_config").select("value").eq("key", f"{platform.lower()}_enabled").execute()
+        return r.data[0]["value"] != "false" if r.data else True
+    except:
+        return True
+
+def set_platform_enabled(platform: str, on: bool):
+    sb().table("system_config").upsert({"key": f"{platform.lower()}_enabled", "value": "true" if on else "false"}).execute()
+
 def is_maintenance() -> bool:
     """從 DB 讀取維護模式狀態"""
     try:
@@ -1609,6 +1620,8 @@ def handle_message(event):
             "→ 開關維護模式\n\n"
             "測試開 / 測試關\n"
             "→ 測試模式（只有管理員能操作和收到推送）\n\n"
+            "DG開 / DG關 / MT開 / MT關\n"
+            "→ 開關場館（關閉後用戶無法切換）\n\n"
             "切換 / 切換DG / 切換MT\n"
             "→ 切換數據平台（所有用戶可用）\n\n"
             "查詢 REF-XXXX\n"
@@ -1636,9 +1649,31 @@ def handle_message(event):
             reply_text(token, "❌ 無權限"); return
         set_test_mode(False)
         reply_text(token, "✅ 測試模式已關閉，所有用戶恢復正常"); return
+    if text in ("DG開", "dg開", "Dg開"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        set_platform_enabled("DG", True)
+        reply_text(token, "✅ DG 場館已開放"); return
+    if text in ("DG關", "dg關", "Dg關"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        set_platform_enabled("DG", False)
+        reply_text(token, "🔒 DG 場館已關閉，用戶無法切換至 DG"); return
+    if text in ("MT開", "mt開", "Mt開"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        set_platform_enabled("MT", True)
+        reply_text(token, "✅ MT 場館已開放"); return
+    if text in ("MT關", "mt關", "Mt關"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        set_platform_enabled("MT", False)
+        reply_text(token, "🔒 MT 場館已關閉，用戶無法切換至 MT"); return
     if text in ("切換", "切換平台", "切換遊戲"):
         cur = member.get("game") or "MT"
         new_plat = "DG" if cur == "MT" else "MT"
+        if not is_platform_enabled(new_plat) and not is_admin(user_id):
+            reply_text(token, f"🔒 {new_plat} 場館目前未開放"); return
         sb().table("members").update({"game": new_plat}).eq("user_id", user_id).execute()
         with follow_lock:
             following.pop(user_id, None)
@@ -1652,6 +1687,8 @@ def handle_message(event):
             reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
         reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/空投/仙人指路 將使用 MT 數據"); return
     if text in ("切換DG", "切換dg", "切換Dg"):
+        if not is_platform_enabled("DG") and not is_admin(user_id):
+            reply_text(token, "🔒 DG 場館目前未開放"); return
         sb().table("members").update({"game": "DG"}).eq("user_id", user_id).execute()
         with follow_lock:
             following.pop(user_id, None)
@@ -1663,6 +1700,8 @@ def handle_message(event):
             dg_count = 0
         reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
     if text in ("切換MT", "切換mt", "切換Mt"):
+        if not is_platform_enabled("MT") and not is_admin(user_id):
+            reply_text(token, "🔒 MT 場館目前未開放"); return
         sb().table("members").update({"game": "MT"}).eq("user_id", user_id).execute()
         with follow_lock:
             following.pop(user_id, None)
