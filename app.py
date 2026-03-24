@@ -101,40 +101,43 @@ def tg_notify_gw(text: str):
     for chat_id in TG_GW_CHAT_IDS:
         tg_send(chat_id, text)
 
+# ── system_config 快取（30 秒刷新一次，減少 DB 查詢）──
+_config_cache = {"data": {}, "ts": 0}
+_CONFIG_TTL = 30  # 秒
+
+def _get_config(key: str, default: str = "") -> str:
+    now = time.time()
+    if now - _config_cache["ts"] > _CONFIG_TTL:
+        try:
+            rows = sb().table("system_config").select("key,value").execute().data or []
+            _config_cache["data"] = {r["key"]: r["value"] for r in rows}
+            _config_cache["ts"] = now
+        except:
+            pass
+    return _config_cache["data"].get(key, default)
+
+def _set_config(key: str, value: str):
+    sb().table("system_config").upsert({"key": key, "value": value}).execute()
+    _config_cache["data"][key] = value
+    _config_cache["ts"] = time.time()
+
 def is_platform_enabled(platform: str) -> bool:
-    """檢查場館是否開放（預設開放）"""
-    try:
-        r = sb().table("system_config").select("value").eq("key", f"{platform.lower()}_enabled").execute()
-        return r.data[0]["value"] != "false" if r.data else True
-    except:
-        return True
+    return _get_config(f"{platform.lower()}_enabled", "true") != "false"
 
 def set_platform_enabled(platform: str, on: bool):
-    sb().table("system_config").upsert({"key": f"{platform.lower()}_enabled", "value": "true" if on else "false"}).execute()
+    _set_config(f"{platform.lower()}_enabled", "true" if on else "false")
 
 def is_maintenance() -> bool:
-    """從 DB 讀取維護模式狀態"""
-    try:
-        r = sb().table("system_config").select("value").eq("key", "maintenance_mode").execute()
-        return r.data[0]["value"] == "true" if r.data else False
-    except Exception:
-        return False
+    return _get_config("maintenance_mode", "false") == "true"
 
 def set_maintenance(on: bool):
-    """寫入維護模式狀態到 DB"""
-    sb().table("system_config").upsert({"key": "maintenance_mode", "value": "true" if on else "false"}).execute()
+    _set_config("maintenance_mode", "true" if on else "false")
 
 def is_test_mode() -> bool:
-    """從 DB 讀取測試模式狀態"""
-    try:
-        r = sb().table("system_config").select("value").eq("key", "test_mode").execute()
-        return r.data[0]["value"] == "true" if r.data else False
-    except Exception:
-        return False
+    return _get_config("test_mode", "false") == "true"
 
 def set_test_mode(on: bool):
-    """寫入測試模式狀態到 DB"""
-    sb().table("system_config").upsert({"key": "test_mode", "value": "true" if on else "false"}).execute()
+    _set_config("test_mode", "true" if on else "false")
 COOLDOWN_SEC = 5
 
 def check_cooldown(user_id: str) -> bool:
@@ -262,12 +265,7 @@ def get_user_platform(member: dict) -> str:
     return member.get("game", "MT") or "MT"
 
 def _sexy_enabled() -> bool:
-    """性感桌是否開放（預設關閉）"""
-    try:
-        r = sb().table("system_config").select("value").eq("key", "sexy_enabled").execute()
-        return r.data[0]["value"] == "true" if r.data else False
-    except:
-        return False
+    return _get_config("sexy_enabled", "false") == "true"
 
 def _hide_sexy(table_id: str, admin: bool = False) -> bool:
     """是否隱藏該桌（管理員永遠可見）"""
@@ -1913,7 +1911,7 @@ def poll_loop():
     global _last_trial_check
     print(f"[poll_loop] 啟動 pid={os.getpid()}", flush=True)
     while True:
-        time.sleep(2)
+        time.sleep(5)  # 5秒一次（從2秒改，減輕負載）
         try:
             # 一次 query 取得所有桌台最新手，供 following & airdrop 共用
             latest_hands = get_all_latest_hands()
