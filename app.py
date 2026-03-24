@@ -582,13 +582,13 @@ def cmd_guide(user_id, token, member):
     else:
         rec = None
     plat_tag = f"[{plat}] " if plat == "DG" else ""
+    rec_str = f"  {rec}" if rec else ""
     if best_val > 0:
-        rec_str = f"  {rec}" if rec else ""
         msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局 {label} EV={best_val:+.4f} ✅\n"
                f"正EV機會，可考慮出手")
     else:
-        msg = (f"🧙 仙人指路 {plat_tag}第{t}廳\n"
+        msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局\n"
                f"目前最佳選項：{label} EV={best_val:+.4f}\n"
                f"靴牌進行中，持續監控")
