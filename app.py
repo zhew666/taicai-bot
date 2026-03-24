@@ -261,13 +261,28 @@ def get_user_platform(member: dict) -> str:
     """取得用戶偏好平台"""
     return member.get("game", "MT") or "MT"
 
-def get_platform_tables(platform: str) -> list:
+def _sexy_enabled() -> bool:
+    """性感桌是否開放（預設關閉）"""
+    try:
+        r = sb().table("system_config").select("value").eq("key", "sexy_enabled").execute()
+        return r.data[0]["value"] == "true" if r.data else False
+    except:
+        return False
+
+def _hide_sexy(table_id: str, admin: bool = False) -> bool:
+    """是否隱藏該桌（管理員永遠可見）"""
+    if not table_id.startswith("DGS"):
+        return False
+    if admin:
+        return False
+    return not _sexy_enabled()
+
+def get_platform_tables(platform: str, admin: bool = False) -> list:
     """取得該平台的有效桌號列表（MT 固定，DG 從 DB 動態取）"""
     if platform == "DG":
         try:
             rows = sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data
-            # 暫時隱藏性感桌（DGS*），數據修正後再開放
-            return [r["table_id"] for r in rows if not r["table_id"].startswith("DGS")] if rows else []
+            return [r["table_id"] for r in rows if not _hide_sexy(r["table_id"], admin)] if rows else []
         except:
             return []
     return ALL_TABLES_MT
@@ -467,7 +482,7 @@ def cmd_follow(user_id, token, text, member):
     if not is_allowed(member):
         expired_reply(token, member); return
     plat = get_user_platform(member)
-    valid_tables = get_platform_tables(plat)
+    valid_tables = get_platform_tables(plat, admin=is_admin(user_id))
     tid = normalize_table(text[2:].strip(), plat)
 
     # 沒帶廳號：如果正在跟隨就關閉，否則顯示引導
@@ -557,7 +572,7 @@ def cmd_guide(user_id, token, member):
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat()
     try:
         fresh_rows = [r for r in sb().table("live_tables").select("*").eq("platform", plat).gte("updated_at", cutoff).execute().data
-                      if not r["table_id"].startswith("DGS")]
+                      if not _hide_sexy(r["table_id"], is_admin(user_id))]
     except Exception:
         fresh_rows = []
     if not fresh_rows:
@@ -1999,7 +2014,7 @@ def _poll_airdrop(latest_hands: dict):
         pos_hands_mt = {row["table_id"]: row for row in pos_rows
                         if row.get("platform") == "MT" and row["table_id"] != "TEST01"}
         pos_hands_dg = {row["table_id"]: row for row in pos_rows
-                        if row.get("platform") == "DG" and not row["table_id"].startswith("DGS")}
+                        if row.get("platform") == "DG" and not _hide_sexy(row["table_id"])}
     except Exception as e:
         print(f"[Airdrop] 查 positive_ev 失敗: {e}", flush=True)
         pos_hands_mt, pos_hands_dg = {}, {}
