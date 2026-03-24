@@ -318,8 +318,8 @@ def format_hand(row: dict) -> str:
     # 莊閒 EV 比較 → 推薦標記放前面
     ev_b = row.get("ev_banker") or 0
     ev_p = row.get("ev_player") or 0
-    b_prefix = "🔴" if ev_b > ev_p and ev_b > 0 else "  "
-    p_prefix = "🔵" if ev_p > ev_b and ev_p > 0 else "  "
+    b_prefix = "🔴" if ev_b > ev_p else "  "
+    p_prefix = "🔵" if ev_p > ev_b else "  "
 
     return "\n".join([
         f"{plat_tag}第{tid}廳{dealer_str} | 第{next_hand}局EV",
@@ -575,9 +575,9 @@ def cmd_guide(user_id, token, member):
     # 判斷莊/閒推薦標記
     ev_b = best_row.get("ev_banker") or 0
     ev_p = best_row.get("ev_player") or 0
-    if ev_b > ev_p and ev_b > 0:
+    if ev_b > ev_p:
         rec = "🔴莊"
-    elif ev_p > ev_b and ev_p > 0:
+    elif ev_p > ev_b:
         rec = "🔵閒"
     else:
         rec = None
