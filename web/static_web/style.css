@@ -1,0 +1,68 @@
+/* 百家之眼 Agent Dashboard */
+
+nav .active {
+    font-weight: bold;
+    text-decoration: underline;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+/* Stats cards */
+article > header {
+    font-size: 0.85rem;
+    opacity: 0.7;
+    padding-bottom: 0.25rem;
+}
+
+article > h1, article > h2 {
+    margin: 0.25rem 0;
+}
+
+article > footer {
+    font-size: 0.8rem;
+    opacity: 0.6;
+    padding-top: 0.25rem;
+}
+
+/* Tree */
+details summary {
+    cursor: pointer;
+    padding: 0.4rem 0;
+}
+
+details summary strong {
+    margin-right: 0.5rem;
+}
+
+details summary code {
+    margin-right: 0.5rem;
+    font-size: 0.8rem;
+}
+
+details summary small {
+    margin-left: 0.25rem;
+}
+
+/* Table tweaks */
+table code {
+    font-size: 0.85rem;
+}
+
+/* Dialog */
+dialog article {
+    max-width: 400px;
+}
+
+/* Mobile nav */
+@media (max-width: 768px) {
+    nav ul {
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+    nav ul li {
+        font-size: 0.85rem;
+    }
+}

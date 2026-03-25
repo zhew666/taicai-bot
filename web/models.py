@@ -1,0 +1,147 @@
+from datetime import datetime, timezone
+from .utils import sb
+
+def get_all_descendants(agent):
+    """取得代理所有下線代理（不含自己）"""
+    path = agent["path"]
+    r = sb().table("agents").select("*") \
+        .like("path", f"{path}%") \
+        .neq("agent_id", agent["agent_id"]) \
+        .eq("tenant_id", agent["tenant_id"]) \
+        .execute()
+    return r.data or []
+
+def get_direct_children(agent):
+    """取得直屬子代理"""
+    r = sb().table("agents").select("*") \
+        .eq("parent_agent_id", agent["agent_id"]) \
+        .eq("tenant_id", agent["tenant_id"]) \
+        .execute()
+    return r.data or []
+
+def get_downline_members(agent, agent_ids=None):
+    """取得代理體系下所有會員"""
+    if agent_ids is None:
+        descendants = get_all_descendants(agent)
+        agent_ids = [agent["agent_id"]] + [a["agent_id"] for a in descendants]
+    r = sb().table("members").select("*") \
+        .in_("referred_by", agent_ids) \
+        .eq("tenant_id", agent["tenant_id"]) \
+        .execute()
+    return r.data or []
+
+def classify_member(m):
+    """判斷會員狀態"""
+    now = datetime.now(timezone.utc)
+    if m.get("is_member") and not m.get("expire_at"):
+        return "permanent"  # 永久（管理員/代理）
+    if m.get("expire_at"):
+        try:
+            exp = datetime.fromisoformat(m["expire_at"].replace("Z", "+00:00"))
+            if exp > now:
+                return "active"
+            else:
+                return "expired"
+        except Exception:
+            return "unknown"
+    if m.get("trial_start"):
+        return "expired"
+    return "new"
+
+def get_fission_stats(agent):
+    """裂變統計"""
+    descendants = get_all_descendants(agent)
+    agent_ids = [agent["agent_id"]] + [a["agent_id"] for a in descendants]
+    members = get_downline_members(agent, agent_ids)
+
+    stats = {"total": 0, "active": 0, "trial": 0, "expired": 0, "new": 0, "sub_agents": len(descendants)}
+    now = datetime.now(timezone.utc)
+
+    for m in members:
+        stats["total"] += 1
+        status = classify_member(m)
+        if status == "active":
+            # 區分正式 vs 試用：>24h = 正式, <24h = 試用
+            exp = datetime.fromisoformat(m["expire_at"].replace("Z", "+00:00"))
+            remaining = (exp - now).total_seconds()
+            if remaining > 86400:
+                stats["active"] += 1
+            else:
+                stats["trial"] += 1
+        elif status == "expired":
+            stats["expired"] += 1
+        elif status == "new":
+            stats["new"] += 1
+
+    # 直推人數
+    direct_members = [m for m in members if m.get("referred_by") == agent["agent_id"]]
+    stats["direct"] = len(direct_members)
+
+    return stats
+
+def get_members_paginated(agent, page=1, per_page=20, status_filter=None, search=None):
+    """分頁取得會員列表"""
+    descendants = get_all_descendants(agent)
+    agent_ids = [agent["agent_id"]] + [a["agent_id"] for a in descendants]
+    members = get_downline_members(agent, agent_ids)
+
+    # Filter
+    if status_filter:
+        members = [m for m in members if classify_member(m) == status_filter]
+
+    if search:
+        search = search.upper()
+        members = [m for m in members
+                   if search in (m.get("referral_code") or "").upper()
+                   or search in (m.get("display_name") or "").upper()
+                   or search in (m.get("user_id") or "").upper()]
+
+    # Sort: active first, then by expire_at desc
+    def sort_key(m):
+        s = classify_member(m)
+        order = {"active": 0, "trial": 1, "new": 2, "expired": 3, "permanent": 4}
+        return (order.get(s, 5), m.get("expire_at") or "")
+
+    members.sort(key=sort_key)
+
+    total = len(members)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * per_page
+    page_members = members[start:start + per_page]
+
+    # Annotate with status
+    for m in page_members:
+        m["_status"] = classify_member(m)
+
+    return {
+        "members": page_members,
+        "page": page,
+        "total_pages": total_pages,
+        "total": total,
+    }
+
+def build_agent_tree(agent):
+    """建構代理樹（遞迴）"""
+    children = get_direct_children(agent)
+    # 每個子代理的直推會員數
+    node = {
+        "agent_id": agent["agent_id"],
+        "agent_code": agent.get("custom_ref_code") or agent["agent_code"],
+        "display_name": agent.get("display_name") or agent.get("name") or agent["agent_code"],
+        "depth": agent.get("depth", 1),
+        "is_active": agent.get("is_active", True),
+        "children": [],
+    }
+
+    # 直推會員數
+    r = sb().table("members").select("user_id", count="exact") \
+        .eq("referred_by", agent["agent_id"]) \
+        .eq("tenant_id", agent["tenant_id"]) \
+        .execute()
+    node["direct_members"] = r.count if r.count is not None else len(r.data or [])
+
+    for child in children:
+        node["children"].append(build_agent_tree(child))
+
+    return node

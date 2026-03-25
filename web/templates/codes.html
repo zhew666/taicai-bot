@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}推廣碼管理{% endblock %}
+{% block content %}
+<hgroup>
+    <h2>推廣碼管理</h2>
+    <p>建立自訂推廣碼，方便推廣</p>
+</hgroup>
+
+<article>
+    <header>新增自訂推廣碼</header>
+    <form onsubmit="return createCode(event)" class="grid">
+        <input type="text" id="newCode" placeholder="例如：BOSS888" pattern="[A-Za-z0-9_-]{3,20}" required>
+        <button type="submit">建立</button>
+    </form>
+    <div id="codeMsg"></div>
+    <small>3~20 字元，英文數字底線連字號。建立後可作為登入帳號和推廣連結使用。</small>
+</article>
+
+<article>
+    <header>我的推廣碼</header>
+    <table>
+        <thead>
+            <tr>
+                <th>推廣碼</th>
+                <th>狀態</th>
+                <th>建立時間</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- System code -->
+            <tr>
+                <td><code>{{ agent.agent_code }}</code></td>
+                <td><mark>系統碼</mark></td>
+                <td>-</td>
+                <td>-</td>
+            </tr>
+            {% for c in custom_codes %}
+            <tr id="row-{{ c.code }}">
+                <td><code>{{ c.code }}</code></td>
+                <td>{% if c.is_active %}<ins>啟用</ins>{% else %}<del>停用</del>{% endif %}</td>
+                <td>{{ c.created_at[:16].replace('T', ' ') }}</td>
+                <td>
+                    {% if c.is_active %}
+                    <button class="outline btn-sm secondary" onclick="deleteCode('{{ c.code }}')">停用</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function createCode(e) {
+    e.preventDefault();
+    const code = document.getElementById('newCode').value.trim();
+    fetch('/dashboard/api/codes', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({code: code})
+    }).then(r => r.json()).then(data => {
+        if (data.ok) {
+            document.getElementById('codeMsg').innerHTML = '<small style="color:var(--pico-ins-color)">已建立 ' + data.code + '</small>';
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            document.getElementById('codeMsg').innerHTML = '<small style="color:var(--pico-del-color)">' + (data.error || '失敗') + '</small>';
+        }
+    });
+    return false;
+}
+function deleteCode(code) {
+    if (!confirm('確定停用 ' + code + '？')) return;
+    fetch('/dashboard/api/codes/' + code, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert(data.error || '失敗');
+    });
+}
+</script>
+{% endblock %}

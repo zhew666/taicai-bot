@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}會員列表{% endblock %}
+{% block content %}
+<hgroup>
+    <h2>會員列表</h2>
+    <p>共 {{ total }} 人 (第 {{ page }}/{{ total_pages }} 頁)</p>
+</hgroup>
+
+<!-- Filters -->
+<form method="GET" class="grid">
+    <input type="text" name="q" placeholder="搜尋推廣碼或名稱..." value="{{ request.args.get('q', '') }}">
+    <select name="status">
+        <option value="">全部狀態</option>
+        <option value="active" {% if request.args.get('status')=='active' %}selected{% endif %}>活躍</option>
+        <option value="trial" {% if request.args.get('status')=='trial' %}selected{% endif %}>試用</option>
+        <option value="expired" {% if request.args.get('status')=='expired' %}selected{% endif %}>已過期</option>
+        <option value="new" {% if request.args.get('status')=='new' %}selected{% endif %}>新用戶</option>
+    </select>
+    <button type="submit">篩選</button>
+</form>
+
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>推廣碼</th>
+            <th>名稱</th>
+            <th>狀態</th>
+            <th>到期時間</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for m in members %}
+        <tr>
+            <td><code>{{ m.referral_code }}</code></td>
+            <td>{{ m.display_name or '-' }}</td>
+            <td>
+                {% if m._status == 'active' %}
+                    <mark>活躍</mark>
+                {% elif m._status == 'trial' %}
+                    <span style="color: var(--pico-mark-background-color);">試用</span>
+                {% elif m._status == 'expired' %}
+                    <span style="color: var(--pico-del-color);">已過期</span>
+                {% elif m._status == 'permanent' %}
+                    <ins>永久</ins>
+                {% else %}
+                    <span>新用戶</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if m.expire_at %}
+                    {{ m.expire_at[:16].replace('T', ' ') }}
+                {% elif m.is_member %}
+                    永久
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            <td>
+                {% if m._status != 'permanent' %}
+                <button class="outline btn-sm" onclick="extendMember('{{ m.referral_code }}')">延長</button>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        {% if not members %}
+        <tr><td colspan="5" style="text-align:center;">無資料</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+</figure>
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<nav>
+    <ul>
+        {% if page > 1 %}
+        <li><a href="?page={{ page-1 }}&status={{ request.args.get('status','') }}&q={{ request.args.get('q','') }}">上一頁</a></li>
+        {% endif %}
+        <li>第 {{ page }} / {{ total_pages }} 頁</li>
+        {% if page < total_pages %}
+        <li><a href="?page={{ page+1 }}&status={{ request.args.get('status','') }}&q={{ request.args.get('q','') }}">下一頁</a></li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+
+<!-- Extend Modal -->
+<dialog id="extendDialog">
+    <article>
+        <header>延長會員</header>
+        <p>會員：<strong id="extendTarget"></strong></p>
+        <label>
+            天數
+            <input type="number" id="extendDays" min="1" max="{{ agent.max_extend_days or 31 }}" value="7">
+        </label>
+        <footer>
+            <button class="secondary" onclick="document.getElementById('extendDialog').close()">取消</button>
+            <button onclick="submitExtend()">確認延長</button>
+        </footer>
+    </article>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentRef = '';
+function extendMember(ref) {
+    currentRef = ref;
+    document.getElementById('extendTarget').textContent = ref;
+    document.getElementById('extendDialog').showModal();
+}
+function submitExtend() {
+    const days = parseInt(document.getElementById('extendDays').value);
+    fetch(`/dashboard/api/members/${currentRef}/extend`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({days: days})
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('extendDialog').close();
+        if (data.ok) {
+            alert(`已延長 ${days} 天，新到期：${data.new_expire.slice(0,16).replace('T',' ')}`);
+            location.reload();
+        } else {
+            alert(data.error || '操作失敗');
+        }
+    })
+    .catch(() => alert('網路錯誤'));
+}
+</script>
+{% endblock %}

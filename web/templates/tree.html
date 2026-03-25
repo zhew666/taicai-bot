@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}代理樹{% endblock %}
+{% block content %}
+<hgroup>
+    <h2>代理樹</h2>
+    <p>你的代理體系結構</p>
+</hgroup>
+
+<article id="tree-container"></article>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+fetch('/dashboard/api/tree')
+.then(r => r.json())
+.then(data => {
+    document.getElementById('tree-container').innerHTML = renderNode(data, true);
+});
+
+function renderNode(node, open) {
+    let html = '<details' + (open ? ' open' : '') + '>';
+    html += '<summary>';
+    html += '<strong>' + esc(node.display_name) + '</strong> ';
+    html += '<code>' + esc(node.agent_code) + '</code> ';
+    html += node.is_active
+        ? '<small style="color:var(--pico-ins-color)">啟用</small>'
+        : '<small style="color:var(--pico-del-color)">停用</small>';
+    html += ' <small>| 直推 ' + node.direct_members + ' 人</small>';
+    html += '</summary>';
+
+    if (node.children && node.children.length > 0) {
+        html += '<div style="margin-left:1.5rem;">';
+        for (const child of node.children) {
+            html += renderNode(child, false);
+        }
+        html += '</div>';
+    } else {
+        html += '<p style="margin-left:1.5rem;opacity:0.6;"><small>無子代理</small></p>';
+    }
+    html += '</details>';
+    return html;
+}
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+}
+</script>
+{% endblock %}

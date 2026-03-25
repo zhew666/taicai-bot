@@ -18,6 +18,10 @@ from supabase import create_client
 app     = Flask(__name__)
 handler = WebhookHandler(os.environ["LINE_CHANNEL_SECRET"])
 config  = Configuration(access_token=os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
+
+# ── Web Dashboard ────────────────────────────────────────
+from web import create_dashboard_blueprint
+app.register_blueprint(create_dashboard_blueprint(), url_prefix="/dashboard")
 _sb_url = os.environ["SUPABASE_URL"]
 _sb_key = os.environ["SUPABASE_KEY"]
 _thread_local = threading.local()

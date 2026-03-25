@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}設定{% endblock %}
+{% block content %}
+<hgroup>
+    <h2>帳號設定</h2>
+    <p>{{ agent.agent_code }}</p>
+</hgroup>
+
+<div class="grid">
+    <article>
+        <header>修改顯示名稱</header>
+        <form onsubmit="return updateProfile(event)">
+            <label>
+                顯示名稱
+                <input type="text" id="displayName" value="{{ agent.display_name or '' }}" placeholder="輸入你的名稱" required>
+            </label>
+            <button type="submit">儲存</button>
+        </form>
+        <div id="profileMsg"></div>
+    </article>
+
+    <article>
+        <header>修改密碼</header>
+        <form onsubmit="return changePassword(event)">
+            {% if agent.password_hash %}
+            <label>
+                舊密碼
+                <input type="password" id="oldPw" placeholder="輸入舊密碼" required>
+            </label>
+            {% endif %}
+            <label>
+                新密碼
+                <input type="password" id="newPw" placeholder="至少 6 字元" minlength="6" required>
+            </label>
+            <button type="submit">更新密碼</button>
+        </form>
+        <div id="pwMsg"></div>
+    </article>
+</div>
+
+<article>
+    <header>帳號資訊</header>
+    <table>
+        <tr><td>代理碼</td><td><code>{{ agent.agent_code }}</code></td></tr>
+        <tr><td>自訂推廣碼</td><td>{{ agent.custom_ref_code or '（未設定）' }}</td></tr>
+        <tr><td>層級</td><td>{{ agent.depth or 1 }}</td></tr>
+        <tr><td>每次最大延長</td><td>{{ agent.max_extend_days or 31 }} 天</td></tr>
+        <tr><td>狀態</td><td>{% if agent.is_active %}啟用{% else %}停用{% endif %}</td></tr>
+    </table>
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateProfile(e) {
+    e.preventDefault();
+    fetch('/dashboard/api/settings/profile', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({display_name: document.getElementById('displayName').value})
+    }).then(r => r.json()).then(data => {
+        document.getElementById('profileMsg').innerHTML = data.ok
+            ? '<small style="color:var(--pico-ins-color)">已儲存</small>'
+            : '<small style="color:var(--pico-del-color)">' + (data.error || '失敗') + '</small>';
+    });
+    return false;
+}
+function changePassword(e) {
+    e.preventDefault();
+    const oldEl = document.getElementById('oldPw');
+    fetch('/dashboard/api/settings/password', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            old_password: oldEl ? oldEl.value : '',
+            new_password: document.getElementById('newPw').value
+        })
+    }).then(r => r.json()).then(data => {
+        document.getElementById('pwMsg').innerHTML = data.ok
+            ? '<small style="color:var(--pico-ins-color)">密碼已更新</small>'
+            : '<small style="color:var(--pico-del-color)">' + (data.error || '失敗') + '</small>';
+    });
+    return false;
+}
+</script>
+{% endblock %}

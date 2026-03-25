@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}百家之眼{% endblock %} - 代理後台</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='style.css') }}">
+</head>
+<body>
+    {% if agent %}
+    <nav class="container-fluid">
+        <ul>
+            <li><strong>百家之眼</strong></li>
+        </ul>
+        <ul>
+            <li><a href="{{ url_for('dashboard.index') }}" {% if request.path == '/dashboard/' %}class="active"{% endif %}>儀表板</a></li>
+            <li><a href="{{ url_for('dashboard.members') }}" {% if '/members' in request.path %}class="active"{% endif %}>會員</a></li>
+            <li><a href="{{ url_for('dashboard.tree') }}" {% if '/tree' in request.path %}class="active"{% endif %}>代理樹</a></li>
+            <li><a href="{{ url_for('dashboard.codes') }}" {% if '/codes' in request.path %}class="active"{% endif %}>推廣碼</a></li>
+            <li><a href="{{ url_for('dashboard.settings') }}" {% if '/settings' in request.path %}class="active"{% endif %}>設定</a></li>
+            <li>
+                <small>{{ agent.display_name or agent.agent_code }}</small>
+                <a href="{{ url_for('dashboard.logout') }}" role="button" class="outline secondary btn-sm">登出</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="container">
+        <small>百家之眼 Agent Dashboard v1.0</small>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>
