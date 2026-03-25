@@ -35,6 +35,7 @@ def sb():
 import httpx as _httpx
 
 REGISTER_URL    = os.environ.get("REGISTER_URL", "gw55.GW1688.NET")
+TENANT_ID       = os.environ.get("TENANT_ID", "")
 ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
 ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
 TG_BOT_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -353,17 +354,18 @@ def gen_referral_code() -> str:
     chars = string.ascii_uppercase + string.digits
     for _ in range(20):
         code = "REF-" + "".join(random.choices(chars, k=4))
-        if not sb().table("members").select("user_id").eq("referral_code", code).execute().data:
+        if not sb().table("members").select("user_id").eq("referral_code", code).eq("tenant_id", TENANT_ID).execute().data:
             return code
     return "REF-" + "".join(random.choices(chars, k=6))
 
 def get_or_create_member(user_id: str) -> dict:
-    r = sb().table("members").select("*").eq("user_id", user_id).execute()
+    r = sb().table("members").select("*").eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
     if r.data:
         return r.data[0]
     now = datetime.now(timezone.utc)
     member = {
         "user_id":       user_id,
+        "tenant_id":     TENANT_ID,
         "trial_start":   None,
         "expire_at":     None,
         "is_member":     False,
@@ -383,7 +385,7 @@ def activate_trial(user_id: str, member: dict) -> dict:
         "trial_start": now.isoformat(),
         "expire_at": (now + timedelta(hours=TRIAL_HOURS)).isoformat(),
     }
-    sb().table("members").update(updates).eq("user_id", user_id).execute()
+    sb().table("members").update(updates).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
     member.update(updates)
     return member
 
@@ -447,7 +449,7 @@ def cmd_confirm_deposit(user_id, token, member):
             f"客服確認後會自動延長，請耐心等候")
         return
     # verified / rejected / none 都可以發起新的確認
-    sb().table("members").update({"gw_status": "pending"}).eq("user_id", user_id).execute()
+    sb().table("members").update({"gw_status": "pending"}).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
     reply_text(token,
         f"📋 帳號：{account}\n"
         f"已通知客服確認您的最新儲值\n"
@@ -680,7 +682,7 @@ def cmd_intro(user_id, token, member):
 def get_agent(user_id: str):
     """查詢 agents 表，回傳 agent row 或 None"""
     try:
-        r = sb().table("agents").select("*").eq("agent_id", user_id).eq("is_active", True).execute()
+        r = sb().table("agents").select("*").eq("agent_id", user_id).eq("is_active", True).eq("tenant_id", TENANT_ID).execute()
         return r.data[0] if r.data else None
     except Exception:
         return None
@@ -696,7 +698,7 @@ def is_admin(user_id: str) -> bool:
         if now - _admin_cache["ts"] > _ADMIN_CACHE_TTL:
             try:
                 codes = [c.strip().upper() for c in ADMIN_REF_CODE.split(",") if c.strip()]
-                r = sb().table("members").select("user_id").in_("referral_code", codes).execute()
+                r = sb().table("members").select("user_id").in_("referral_code", codes).eq("tenant_id", TENANT_ID).execute()
                 _admin_cache["uids"] = {row["user_id"] for row in (r.data or [])}
                 _admin_cache["ts"] = now
             except Exception:
@@ -715,9 +717,9 @@ def cmd_admin_activate(user_id, token, text):
 
     # 查目標成員
     if target.upper().startswith("REF-"):
-        r = sb().table("members").select("*").eq("referral_code", target.upper()).execute()
+        r = sb().table("members").select("*").eq("referral_code", target.upper()).eq("tenant_id", TENANT_ID).execute()
     else:
-        r = sb().table("members").select("*").eq("user_id", target).execute()
+        r = sb().table("members").select("*").eq("user_id", target).eq("tenant_id", TENANT_ID).execute()
 
     if not r.data:
         reply_text(token, f"找不到成員：{target}"); return
@@ -729,10 +731,11 @@ def cmd_admin_activate(user_id, token, text):
         reply_text(token, f"⚠️ {target_uid} 已是正式會員"); return
 
     # 開通正式會員
-    sb().table("members").update({"is_member": True, "expire_at": None}).eq("user_id", target_uid).execute()
+    sb().table("members").update({"is_member": True, "expire_at": None}).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
     # 記錄轉換事件
     try:
         sb().table("referral_events").insert({
+            "tenant_id": TENANT_ID,
             "referee_id": target_uid,
             "referrer_id": target_member.get("referred_by"),
             "code_used": target_member.get("referral_code", ""),
@@ -754,15 +757,16 @@ def cmd_admin_activate(user_id, token, text):
     referrer_uid = target_member.get("referred_by")
     if referrer_uid:
         try:
-            rr = sb().table("members").select("expire_at").eq("user_id", referrer_uid).execute()
+            rr = sb().table("members").select("expire_at").eq("user_id", referrer_uid).eq("tenant_id", TENANT_ID).execute()
             if rr.data:
                 exp = rr.data[0].get("expire_at")
                 base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
                 new_exp = (base + timedelta(days=7)).isoformat()
-                sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer_uid).execute()
+                sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer_uid).eq("tenant_id", TENANT_ID).execute()
                 # 記錄推薦人獎勵事件
                 try:
                     sb().table("referral_events").insert({
+                        "tenant_id": TENANT_ID,
                         "referrer_id": referrer_uid,
                         "referee_id": target_uid,
                         "code_used": target_member.get("referral_code", ""),
@@ -806,9 +810,9 @@ def cmd_admin_extend(user_id, token, text):
     delta, label = parsed
 
     if target.upper().startswith("REF-"):
-        r = sb().table("members").select("*").eq("referral_code", target.upper()).execute()
+        r = sb().table("members").select("*").eq("referral_code", target.upper()).eq("tenant_id", TENANT_ID).execute()
     else:
-        r = sb().table("members").select("*").eq("user_id", target).execute()
+        r = sb().table("members").select("*").eq("user_id", target).eq("tenant_id", TENANT_ID).execute()
 
     if not r.data:
         reply_text(token, f"找不到成員：{target}"); return
@@ -818,7 +822,7 @@ def cmd_admin_extend(user_id, token, text):
     exp = m.get("expire_at")
     base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
     new_exp = (base + delta).isoformat()
-    sb().table("members").update({"expire_at": new_exp}).eq("user_id", uid).execute()
+    sb().table("members").update({"expire_at": new_exp}).eq("user_id", uid).eq("tenant_id", TENANT_ID).execute()
 
     new_exp_tw = datetime.fromisoformat(new_exp).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
     reply_text(token, f"✅ {uid} 延長 {label}\n新到期：{new_exp_tw}")
@@ -835,9 +839,9 @@ def cmd_admin_query(user_id, token, text):
 
     # 找目標用戶
     if target.upper().startswith("REF-"):
-        r = sb().table("members").select("*").eq("referral_code", target.upper()).execute()
+        r = sb().table("members").select("*").eq("referral_code", target.upper()).eq("tenant_id", TENANT_ID).execute()
     else:
-        r = sb().table("members").select("*").eq("user_id", target).execute()
+        r = sb().table("members").select("*").eq("user_id", target).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         reply_text(token, f"找不到：{target}"); return
 
@@ -867,7 +871,7 @@ def cmd_admin_query(user_id, token, text):
         batch = queue_uids[:]
         queue_uids = []
         for uid in batch:
-            children = sb().table("members").select("user_id,is_member,expire_at,referral_code").eq("referred_by", uid).execute().data or []
+            children = sb().table("members").select("user_id,is_member,expire_at,referral_code").eq("referred_by", uid).eq("tenant_id", TENANT_ID).execute().data or []
             for child in children:
                 if child["user_id"] not in visited:
                     visited.add(child["user_id"])
@@ -882,7 +886,7 @@ def cmd_admin_query(user_id, token, text):
     expired = total - paid - trial
 
     # 直屬
-    direct = sb().table("members").select("user_id").eq("referred_by", target_uid).execute().data or []
+    direct = sb().table("members").select("user_id").eq("referred_by", target_uid).eq("tenant_id", TENANT_ID).execute().data or []
     direct_count = len(direct)
 
     reply_text(token,
@@ -902,9 +906,9 @@ def cmd_admin_set_agent(user_id, token, text):
         reply_text(token, "格式：設代理 REF-XXXX"); return
 
     if target.upper().startswith("REF-"):
-        r = sb().table("members").select("*").eq("referral_code", target.upper()).execute()
+        r = sb().table("members").select("*").eq("referral_code", target.upper()).eq("tenant_id", TENANT_ID).execute()
     else:
-        r = sb().table("members").select("*").eq("user_id", target).execute()
+        r = sb().table("members").select("*").eq("user_id", target).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         reply_text(token, f"找不到：{target}"); return
 
@@ -916,12 +920,13 @@ def cmd_admin_set_agent(user_id, token, text):
     sb().table("members").update({
         "is_member": True,
         "expire_at": None,
-    }).eq("user_id", target_uid).execute()
+    }).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
 
     # 同步到 agents 表
     try:
         sb().table("agents").upsert({
             "agent_id": target_uid,
+            "tenant_id": TENANT_ID,
             "is_active": True,
             "max_extend_days": 31,
         }).execute()
@@ -947,21 +952,21 @@ def cmd_admin_set_ref_code(user_id, token, text):
     # 找代理
     agent = None
     if target.upper().startswith("REF-") or target.upper().startswith("AGENT-"):
-        r = sb().table("agents").select("*").eq("agent_code", target.upper()).execute()
+        r = sb().table("agents").select("*").eq("agent_code", target.upper()).eq("tenant_id", TENANT_ID).execute()
         if r.data: agent = r.data[0]
     if not agent:
-        r = sb().table("agents").select("*").eq("custom_ref_code", target.upper()).execute()
+        r = sb().table("agents").select("*").eq("custom_ref_code", target.upper()).eq("tenant_id", TENANT_ID).execute()
         if r.data: agent = r.data[0]
     if not agent:
-        r = sb().table("agents").select("*").eq("agent_id", target).execute()
+        r = sb().table("agents").select("*").eq("agent_id", target).eq("tenant_id", TENANT_ID).execute()
         if r.data: agent = r.data[0]
     if not agent:
         reply_text(token, f"找不到代理：{target}"); return
     # 檢查碼是否已被使用
-    existing = sb().table("agents").select("agent_id").eq("custom_ref_code", new_code).neq("agent_id", agent["agent_id"]).execute()
+    existing = sb().table("agents").select("agent_id").eq("custom_ref_code", new_code).neq("agent_id", agent["agent_id"]).eq("tenant_id", TENANT_ID).execute()
     if existing.data:
         reply_text(token, f"推廣碼 {new_code} 已被其他代理使用"); return
-    sb().table("agents").update({"custom_ref_code": new_code}).eq("agent_id", agent["agent_id"]).execute()
+    sb().table("agents").update({"custom_ref_code": new_code}).eq("agent_id", agent["agent_id"]).eq("tenant_id", TENANT_ID).execute()
     reply_text(token, f"✅ {agent['agent_code']} 的推廣碼已設為 {new_code}")
 
 def cmd_admin_set_grant(user_id, token, text):
@@ -985,17 +990,17 @@ def cmd_admin_set_grant(user_id, token, text):
     # 找代理
     agent = None
     if target.upper().startswith("REF-") or target.upper().startswith("AGENT-"):
-        r = sb().table("agents").select("*").eq("agent_code", target.upper()).execute()
+        r = sb().table("agents").select("*").eq("agent_code", target.upper()).eq("tenant_id", TENANT_ID).execute()
         if r.data: agent = r.data[0]
     if not agent:
-        r = sb().table("agents").select("*").eq("custom_ref_code", target.upper()).execute()
+        r = sb().table("agents").select("*").eq("custom_ref_code", target.upper()).eq("tenant_id", TENANT_ID).execute()
         if r.data: agent = r.data[0]
     if not agent:
-        r = sb().table("agents").select("*").eq("agent_id", target).execute()
+        r = sb().table("agents").select("*").eq("agent_id", target).eq("tenant_id", TENANT_ID).execute()
         if r.data: agent = r.data[0]
     if not agent:
         reply_text(token, f"找不到代理：{target}"); return
-    sb().table("agents").update({"grant_hours": hours}).eq("agent_id", agent["agent_id"]).execute()
+    sb().table("agents").update({"grant_hours": hours}).eq("agent_id", agent["agent_id"]).eq("tenant_id", TENANT_ID).execute()
     label = f"{hours//24} 天" if hours >= 24 and hours % 24 == 0 else f"{hours} 小時"
     reply_text(token, f"✅ {agent.get('custom_ref_code') or agent['agent_code']} 的贈送時間已設為 {label}")
 
@@ -1021,7 +1026,7 @@ def cmd_agent_extend(user_id, token, text, agent):
 
     # 查找目標用戶
     if target_ref.startswith("REF-"):
-        r = sb().table("members").select("*").eq("referral_code", target_ref).execute()
+        r = sb().table("members").select("*").eq("referral_code", target_ref).eq("tenant_id", TENANT_ID).execute()
     else:
         reply_text(token, "請使用推薦碼格式：REF-XXXX"); return
 
@@ -1061,7 +1066,7 @@ def cmd_agent_confirm(user_id, token):
     days = pending["days"]
 
     # 執行延長
-    r = sb().table("members").select("*").eq("user_id", target_uid).execute()
+    r = sb().table("members").select("*").eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         reply_text(token, f"❌ 找不到用戶 {target_ref}"); return True
 
@@ -1069,7 +1074,7 @@ def cmd_agent_confirm(user_id, token):
     exp = m.get("expire_at")
     base = max(datetime.fromisoformat(exp.replace("Z", "+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
     new_exp = (base + timedelta(days=days)).isoformat()
-    sb().table("members").update({"expire_at": new_exp}).eq("user_id", target_uid).execute()
+    sb().table("members").update({"expire_at": new_exp}).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
 
     new_exp_tw = datetime.fromisoformat(new_exp).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
     reply_text(token, f"✅ 已延長 {target_ref} {days} 天\n新到期：{new_exp_tw}")
@@ -1144,14 +1149,14 @@ def cmd_bind_gw_capture(user_id, token, text):
         reply_text(token, "帳號格式不正確，請重新輸入「綁定帳號」")
         return True
     # 檢查是否已被其他人綁定
-    existing = sb().table("members").select("user_id").eq("gw_account", account).execute()
+    existing = sb().table("members").select("user_id").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if existing.data and existing.data[0]["user_id"] != user_id:
         reply_text(token, "⚠️ 此帳號已被其他用戶綁定，請確認後再試")
         return True
     sb().table("members").update({
         "gw_account": account,
         "gw_status": "pending"
-    }).eq("user_id", user_id).execute()
+    }).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
     reply_text(token,
         f"✅ 已記錄您的金盈匯帳號：{account}\n"
         f"━━━━━━━━━━━━━━\n"
@@ -1207,7 +1212,7 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
         days = 7
     else:
         return f"金額不足\n最低 4,900 點 → 7 天\n10,000 點 → 31 天"
-    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
     m = r.data[0]
@@ -1218,9 +1223,10 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
     sb().table("members").update({
         "expire_at": new_exp,
         "gw_status": "verified"
-    }).eq("user_id", target_uid).execute()
+    }).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
     try:
         sb().table("gw_deposits").insert({
+            "tenant_id": TENANT_ID,
             "user_id": target_uid,
             "gw_account": account,
             "amount": amount,
@@ -1248,11 +1254,11 @@ def _do_gw_reject(text: str) -> str:
     if len(parts) < 2:
         return "格式：未通過 <帳號>"
     account = parts[1]
-    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
     target_uid = r.data[0]["user_id"]
-    sb().table("members").update({"gw_status": "rejected"}).eq("user_id", target_uid).execute()
+    sb().table("members").update({"gw_status": "rejected"}).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
     try:
         push_text(target_uid,
             "❌ 帳號驗證未通過\n"
@@ -1270,7 +1276,7 @@ def _do_gw_not_deposited(text: str) -> str:
     if len(parts) < 2:
         return "格式：未儲值 <帳號>"
     account = parts[1]
-    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
     target_uid = r.data[0]["user_id"]
@@ -1293,11 +1299,11 @@ def _do_gw_not_found(text: str) -> str:
     if len(parts) < 2:
         return "格式：查無 <帳號>"
     account = parts[1]
-    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
     target_uid = r.data[0]["user_id"]
-    sb().table("members").update({"gw_status": "rejected"}).eq("user_id", target_uid).execute()
+    sb().table("members").update({"gw_status": "rejected"}).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
     try:
         push_text(target_uid,
             "❌ 查無此帳號\n"
@@ -1315,7 +1321,7 @@ def _do_gw_ask_cs(text: str) -> str:
     if len(parts) < 2:
         return "格式：請詢問 <帳號>"
     account = parts[1]
-    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
     target_uid = r.data[0]["user_id"]
@@ -1337,7 +1343,7 @@ def _do_gw_reply(text: str) -> str:
         return "格式：回覆 <帳號> <訊息內容>"
     account = parts[1]
     message = parts[2]
-    r = sb().table("members").select("*").eq("gw_account", account).execute()
+    r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
     target_uid = r.data[0]["user_id"]
@@ -1355,6 +1361,7 @@ def get_agent_by_custom_code(code_str: str):
     r = (sb().table("agents").select("*")
            .eq("custom_ref_code", code_str.upper())
            .eq("is_active", True)
+           .eq("tenant_id", TENANT_ID)
            .execute())
     return r.data[0] if r.data else None
 
@@ -1363,6 +1370,7 @@ def _has_used(user_id: str, code_type: str) -> bool:
     r = (sb().table("referral_events").select("id")
            .eq("referee_id", user_id)
            .eq("code_type", code_type)
+           .eq("tenant_id", TENANT_ID)
            .limit(1).execute())
     return bool(r.data)
 
@@ -1387,8 +1395,9 @@ def cmd_enter_code(user_id, token, text, member):
         sb().table("members").update({
             "expire_at": new_exp,
             "referred_by": agent["agent_id"],
-        }).eq("user_id", user_id).execute()
+        }).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
         sb().table("referral_events").insert({
+            "tenant_id": TENANT_ID,
             "referrer_id": agent["agent_id"],
             "referee_id": user_id,
             "code_used": agent["custom_ref_code"],
@@ -1410,7 +1419,7 @@ def cmd_enter_code(user_id, token, text, member):
     code_upper = code_clean.upper()
     if not code_upper.startswith("REF-"):
         code_upper = "REF-" + code_upper
-    r_check = sb().table("members").select("user_id,expire_at").eq("referral_code", code_upper).execute()
+    r_check = sb().table("members").select("user_id,expire_at").eq("referral_code", code_upper).eq("tenant_id", TENANT_ID).execute()
     if not r_check.data:
         reply_text(token, "找不到這個碼，請確認後再試"); return
     code = code_upper
@@ -1429,13 +1438,14 @@ def cmd_enter_code(user_id, token, text, member):
     sb().table("members").update({
         "referred_by": referrer["user_id"],
         "expire_at": new_user_exp
-    }).eq("user_id", user_id).execute()
+    }).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
     # 推薦人 +1 天
     exp = referrer["expire_at"]
     base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
     new_exp = (base + timedelta(days=1)).isoformat()
-    sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer["user_id"]).execute()
+    sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer["user_id"]).eq("tenant_id", TENANT_ID).execute()
     sb().table("referral_events").insert({
+        "tenant_id": TENANT_ID,
         "referrer_id": referrer["user_id"],
         "referee_id": user_id,
         "code_used": code,
@@ -1497,11 +1507,12 @@ def cmd_migrate(user_id, token, text, member):
     sb().table("members").update({
         "expire_at": exp_utc.isoformat(),
         "referred_by": f"MIGRATE_{old_channel}",
-    }).eq("user_id", user_id).execute()
+    }).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
 
     # 記錄轉移事件
     try:
         sb().table("referral_events").insert({
+            "tenant_id": TENANT_ID,
             "referee_id": user_id,
             "code_used": old_channel,
             "code_type": "migration",
@@ -1782,7 +1793,7 @@ def handle_message(event):
         new_plat = "DG" if cur == "MT" else "MT"
         if not is_platform_enabled(new_plat) and not is_admin(user_id):
             reply_text(token, f"🔒 {new_plat} 場館目前未開放"); return
-        sb().table("members").update({"game": new_plat}).eq("user_id", user_id).execute()
+        sb().table("members").update({"game": new_plat}).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
         with follow_lock:
             following.pop(user_id, None)
         with airdrop_lock:
@@ -1797,7 +1808,7 @@ def handle_message(event):
     if text in ("切換DG", "切換dg", "切換Dg"):
         if not is_platform_enabled("DG") and not is_admin(user_id):
             reply_text(token, "🔒 DG 場館目前未開放"); return
-        sb().table("members").update({"game": "DG"}).eq("user_id", user_id).execute()
+        sb().table("members").update({"game": "DG"}).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
         with follow_lock:
             following.pop(user_id, None)
         with airdrop_lock:
@@ -1810,7 +1821,7 @@ def handle_message(event):
     if text in ("切換MT", "切換mt", "切換Mt"):
         if not is_platform_enabled("MT") and not is_admin(user_id):
             reply_text(token, "🔒 MT 場館目前未開放"); return
-        sb().table("members").update({"game": "MT"}).eq("user_id", user_id).execute()
+        sb().table("members").update({"game": "MT"}).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
         with follow_lock:
             following.pop(user_id, None)
         with airdrop_lock:
@@ -1880,7 +1891,7 @@ def handle_message(event):
     # 標記新用戶已歡迎（歡迎訊息由 LINE 官方帳號歡迎詞處理）
     if not member.get("welcomed"):
         try:
-            sb().table("members").update({"welcomed": True}).eq("user_id", user_id).execute()
+            sb().table("members").update({"welcomed": True}).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
             member["welcomed"] = True
         except Exception as e:
             print(f"[Welcome] 更新 welcomed 失敗: {e}", flush=True)
@@ -2126,7 +2137,7 @@ def _poll_airdrop(latest_hands: dict):
     _user_plats = {}
     try:
         uids = list(users.keys())
-        mr = sb().table("members").select("user_id,game").in_("user_id", uids).execute()
+        mr = sb().table("members").select("user_id,game").in_("user_id", uids).eq("tenant_id", TENANT_ID).execute()
         _user_plats = {m["user_id"]: (m.get("game") or "MT") for m in (mr.data or [])}
     except Exception:
         pass
@@ -2179,6 +2190,7 @@ def _poll_trial_warnings():
     try:
         r = (sb().table("members").select("user_id,expire_at,referral_code")
                .eq("is_member", False).eq("warned_15min", False)
+               .eq("tenant_id", TENANT_ID)
                .gte("expire_at", now.isoformat()).lte("expire_at", warn_threshold.isoformat())
                .execute())
         for m in (r.data or []):
@@ -2194,7 +2206,7 @@ def _poll_trial_warnings():
                         f"回覆「繼續」即可了解方案\n\n"
                         f"📋 你的推薦碼：{code}\n"
                         f"分享給好友也能獲得額外時間")
-                    sb().table("members").update({"warned_15min": True}).eq("user_id", m["user_id"]).execute()
+                    sb().table("members").update({"warned_15min": True}).eq("user_id", m["user_id"]).eq("tenant_id", TENANT_ID).execute()
                 except Exception as e:
                     print(f"[Trial Warn Error] {m['user_id']}: {e}", flush=True)
     except Exception as e:

@@ -24,7 +24,7 @@ def init_app(bp):
                 else:
                     token = create_session(agent["agent_id"])
                     resp = make_response(redirect(url_for("dashboard.index")))
-                    resp.set_cookie(COOKIE_NAME, token, max_age=7*86400, httponly=True, samesite="Lax")
+                    resp.set_cookie(COOKIE_NAME, token, max_age=7*86400, httponly=True, samesite="Lax", secure=True)
                     return resp
         return render_template("login.html", error=error)
 

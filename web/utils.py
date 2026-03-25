@@ -6,6 +6,7 @@ import os
 
 _sb_url = os.environ.get("SUPABASE_URL", "")
 _sb_key = os.environ.get("SUPABASE_KEY", "")
+TENANT_ID = os.environ.get("TENANT_ID", "")
 _sb_client = None
 
 def sb():
@@ -55,10 +56,16 @@ def destroy_session(token: str):
 def get_agent_by_code(code: str):
     """用 agent_code 或 custom_ref_code 找代理"""
     code_upper = code.strip().upper()
-    r = sb().table("agents").select("*").eq("agent_code", code_upper).execute()
+    q = sb().table("agents").select("*").eq("agent_code", code_upper)
+    if TENANT_ID:
+        q = q.eq("tenant_id", TENANT_ID)
+    r = q.execute()
     if r.data:
         return r.data[0]
-    r = sb().table("agents").select("*").eq("custom_ref_code", code_upper).execute()
+    q = sb().table("agents").select("*").eq("custom_ref_code", code_upper)
+    if TENANT_ID:
+        q = q.eq("tenant_id", TENANT_ID)
+    r = q.execute()
     if r.data:
         return r.data[0]
     return None

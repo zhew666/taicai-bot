@@ -36,7 +36,7 @@ def init_app(bp):
 
         # Find target member
         ref_upper = ref_code.strip().upper()
-        r = sb().table("members").select("*").eq("referral_code", ref_upper).execute()
+        r = sb().table("members").select("*").eq("referral_code", ref_upper).eq("tenant_id", g.agent["tenant_id"]).execute()
         if not r.data:
             return jsonify({"error": "找不到該會員"}), 404
         target = r.data[0]
@@ -77,7 +77,7 @@ def init_app(bp):
     @login_required
     def api_activate_member(ref_code):
         ref_upper = ref_code.strip().upper()
-        r = sb().table("members").select("*").eq("referral_code", ref_upper).execute()
+        r = sb().table("members").select("*").eq("referral_code", ref_upper).eq("tenant_id", g.agent["tenant_id"]).execute()
         if not r.data:
             return jsonify({"error": "找不到該會員"}), 404
         target = r.data[0]
@@ -197,7 +197,7 @@ def init_app(bp):
         if custom_code:
             if len(custom_code) < 3 or len(custom_code) > 20:
                 return jsonify({"error": "推廣碼長度須 3~20 字元"}), 400
-            existing = sb().table("agents").select("agent_id").eq("custom_ref_code", custom_code).execute()
+            existing = sb().table("agents").select("agent_id").eq("custom_ref_code", custom_code).eq("tenant_id", g.agent["tenant_id"]).execute()
             if existing.data:
                 return jsonify({"error": "推廣碼已被使用"}), 409
 
@@ -239,7 +239,7 @@ def init_app(bp):
         if "custom_ref_code" in data:
             code = data["custom_ref_code"].strip().upper()
             if code:
-                existing = sb().table("agents").select("agent_id").eq("custom_ref_code", code).neq("agent_id", agent_id).execute()
+                existing = sb().table("agents").select("agent_id").eq("custom_ref_code", code).neq("agent_id", agent_id).eq("tenant_id", g.agent["tenant_id"]).execute()
                 if existing.data:
                     return jsonify({"error": "推廣碼已被使用"}), 409
             updates["custom_ref_code"] = code or None
@@ -258,5 +258,5 @@ def init_app(bp):
         if not updates:
             return jsonify({"error": "沒有要更新的欄位"}), 400
 
-        sb().table("agents").update(updates).eq("agent_id", agent_id).execute()
+        sb().table("agents").update(updates).eq("agent_id", agent_id).eq("tenant_id", g.agent["tenant_id"]).execute()
         return jsonify({"ok": True})
