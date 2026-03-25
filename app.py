@@ -1797,24 +1797,11 @@ def handle_message(event):
     if is_test_mode() and not is_admin(user_id):
         return
 
-    # 新用戶歡迎訊息（不吃 CD）
+    # 標記新用戶已歡迎（歡迎訊息由 LINE 官方帳號歡迎詞處理）
     if not member.get("welcomed"):
         try:
             sb().table("members").update({"welcomed": True}).eq("user_id", user_id).execute()
-            reply_text(token,
-                "歡迎加入【百家之眼】\n"
-                "━━━━━━━━━━━━━━\n\n"
-                "我們是一群用數據打牌的人。\n\n"
-                "百家之眼即時追蹤 8 副牌、計算每一局的\n"
-                "期望值（EV），在機率站到你這邊時通知你。\n\n"
-                "支援場館：MT 13 廳 ＋ DG 14 桌\n"
-                "不靠感覺，靠數學。\n\n"
-                "━━━━━━━━━━━━━━\n"
-                "🎯 馬上試試 → 點選單「仙人指路」\n"
-                "📖 想了解更多 → 輸入「功能介紹」\n"
-                "🔄 切換場館 → 輸入「切換」\n"
-                "🎁 有推薦碼 → 輸入「好友推薦碼 REF-XXXX」")
-            return
+            member["welcomed"] = True
         except Exception as e:
             print(f"[Welcome] 更新 welcomed 失敗: {e}", flush=True)
 
