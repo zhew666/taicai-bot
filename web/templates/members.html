@@ -60,6 +60,7 @@
             <td>
                 {% if m._status != 'permanent' %}
                 <button class="outline btn-sm" onclick="extendMember('{{ m.referral_code }}')">延長</button>
+                <button class="outline btn-sm secondary" onclick="setExpire('{{ m.referral_code }}', '{{ m.expire_at[:16] if m.expire_at else '' }}')">修改</button>
                 {% endif %}
             </td>
         </tr>
@@ -101,6 +102,22 @@
         </footer>
     </article>
 </dialog>
+
+<!-- Set Expire Modal -->
+<dialog id="setExpireDialog">
+    <article>
+        <header>修改到期時間</header>
+        <p>會員：<strong id="setExpireTarget"></strong></p>
+        <label>
+            到期時間
+            <input type="datetime-local" id="setExpireInput">
+        </label>
+        <footer>
+            <button class="secondary" onclick="document.getElementById('setExpireDialog').close()">取消</button>
+            <button onclick="submitSetExpire()">確認修改</button>
+        </footer>
+    </article>
+</dialog>
 {% endblock %}
 
 {% block scripts %}
@@ -123,6 +140,33 @@ function submitExtend() {
         document.getElementById('extendDialog').close();
         if (data.ok) {
             alert(`已延長 ${days} 天，新到期：${data.new_expire.slice(0,16).replace('T',' ')}`);
+            location.reload();
+        } else {
+            alert(data.error || '操作失敗');
+        }
+    })
+    .catch(() => alert('網路錯誤'));
+}
+let expireRef = '';
+function setExpire(ref, currentExpire) {
+    expireRef = ref;
+    document.getElementById('setExpireTarget').textContent = ref;
+    document.getElementById('setExpireInput').value = currentExpire || '';
+    document.getElementById('setExpireDialog').showModal();
+}
+function submitSetExpire() {
+    const val = document.getElementById('setExpireInput').value;
+    if (!val) { alert('請選擇時間'); return; }
+    fetch(`/dashboard/api/members/${expireRef}/set-expire`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({expire_at: val + ':00+08:00'})
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('setExpireDialog').close();
+        if (data.ok) {
+            alert(`到期時間已修改為：${data.new_expire.slice(0,16).replace('T',' ')}`);
             location.reload();
         } else {
             alert(data.error || '操作失敗');

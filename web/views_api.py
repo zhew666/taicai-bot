@@ -73,6 +73,43 @@ def init_app(bp):
 
         return jsonify({"ok": True, "new_expire": new_exp.isoformat()})
 
+    @bp.route("/api/members/<ref_code>/set-expire", methods=["POST"])
+    @login_required
+    def api_set_expire(ref_code):
+        data = request.json or {}
+        expire_at = data.get("expire_at", "")
+        if not expire_at:
+            return jsonify({"error": "請提供到期時間"}), 400
+
+        try:
+            new_exp = datetime.fromisoformat(expire_at.replace("Z", "+00:00"))
+        except Exception:
+            return jsonify({"error": "時間格式錯誤"}), 400
+
+        ref_upper = ref_code.strip().upper()
+        r = sb().table("members").select("*").eq("referral_code", ref_upper).eq("tenant_id", g.agent["tenant_id"]).execute()
+        if not r.data:
+            return jsonify({"error": "找不到該會員"}), 404
+        target = r.data[0]
+
+        descendants = models.get_all_descendants(g.agent)
+        allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
+        if target.get("referred_by") not in allowed_ids:
+            return jsonify({"error": "該會員不在你的下線中"}), 403
+
+        sb().table("members").update({
+            "expire_at": new_exp.isoformat(),
+        }).eq("user_id", target["user_id"]).execute()
+
+        sb().table("agent_actions_log").insert({
+            "agent_id": g.agent["agent_id"],
+            "action": "set_expire",
+            "target_user_id": target["user_id"],
+            "details": {"new_expire": new_exp.isoformat(), "ref_code": ref_upper},
+        }).execute()
+
+        return jsonify({"ok": True, "new_expire": new_exp.isoformat()})
+
     @bp.route("/api/members/<ref_code>/activate", methods=["POST"])
     @login_required
     def api_activate_member(ref_code):
