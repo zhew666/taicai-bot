@@ -1,9 +1,9 @@
 from flask import request, jsonify, g
 from datetime import datetime, timedelta, timezone
-from .decorators import login_required
+from .decorators import login_required, admin_required
 from .utils import sb, hash_password, check_password
 from . import models
-import re
+import re, uuid
 
 def init_app(bp):
 
@@ -171,4 +171,88 @@ def init_app(bp):
         if not name:
             return jsonify({"error": "名稱不可為空"}), 400
         sb().table("agents").update({"display_name": name}).eq("agent_id", g.agent["agent_id"]).execute()
+        return jsonify({"ok": True})
+
+    # ── 管理員 API ──
+
+    @bp.route("/api/admin/agents", methods=["GET"])
+    @admin_required
+    def api_admin_agents():
+        agents = sb().table("agents").select("*").eq("tenant_id", g.agent["tenant_id"]).order("created_at").execute().data or []
+        for a in agents:
+            a.pop("password_hash", None)
+        return jsonify(agents)
+
+    @bp.route("/api/admin/agents", methods=["POST"])
+    @admin_required
+    def api_admin_create_agent():
+        data = request.json or {}
+        display_name = data.get("display_name", "").strip()
+        custom_code = data.get("custom_ref_code", "").strip().upper()
+        grant_hours = data.get("grant_hours", 6)
+        max_extend = data.get("max_extend_days", 31)
+        password = data.get("password", "123456")
+
+        if not display_name:
+            return jsonify({"error": "名稱不可為空"}), 400
+        if custom_code:
+            if len(custom_code) < 3 or len(custom_code) > 20:
+                return jsonify({"error": "推廣碼長度須 3~20 字元"}), 400
+            existing = sb().table("agents").select("agent_id").eq("custom_ref_code", custom_code).execute()
+            if existing.data:
+                return jsonify({"error": "推廣碼已被使用"}), 409
+
+        agent_id = str(uuid.uuid4())
+        agent_code = f"AGENT-{custom_code}" if custom_code else f"AGENT-{uuid.uuid4().hex[:6].upper()}"
+
+        sb().table("agents").insert({
+            "agent_id": agent_id,
+            "agent_code": agent_code,
+            "level": 1,
+            "parent_agent_id": None,
+            "name": display_name,
+            "display_name": display_name,
+            "max_extend_days": max_extend,
+            "is_active": True,
+            "tenant_id": g.agent["tenant_id"],
+            "path": f"/{agent_id}/",
+            "depth": 1,
+            "custom_ref_code": custom_code or None,
+            "grant_hours": grant_hours,
+            "password_hash": hash_password(password),
+        }).execute()
+
+        return jsonify({"ok": True, "agent_id": agent_id, "agent_code": agent_code})
+
+    @bp.route("/api/admin/agents/<agent_id>", methods=["PUT"])
+    @admin_required
+    def api_admin_update_agent(agent_id):
+        data = request.json or {}
+        updates = {}
+
+        if "display_name" in data:
+            updates["display_name"] = data["display_name"].strip()
+        if "custom_ref_code" in data:
+            code = data["custom_ref_code"].strip().upper()
+            if code:
+                existing = sb().table("agents").select("agent_id").eq("custom_ref_code", code).neq("agent_id", agent_id).execute()
+                if existing.data:
+                    return jsonify({"error": "推廣碼已被使用"}), 409
+            updates["custom_ref_code"] = code or None
+        if "grant_hours" in data:
+            h = int(data["grant_hours"])
+            if h < 0 or h > 8760:
+                return jsonify({"error": "贈送時間須 0~8760 小時"}), 400
+            updates["grant_hours"] = h
+        if "max_extend_days" in data:
+            updates["max_extend_days"] = int(data["max_extend_days"])
+        if "is_active" in data:
+            updates["is_active"] = bool(data["is_active"])
+        if "password" in data and data["password"]:
+            updates["password_hash"] = hash_password(data["password"])
+
+        if not updates:
+            return jsonify({"error": "沒有要更新的欄位"}), 400
+
+        sb().table("agents").update(updates).eq("agent_id", agent_id).execute()
         return jsonify({"ok": True})

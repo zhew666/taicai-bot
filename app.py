@@ -934,6 +934,71 @@ def cmd_admin_set_agent(user_id, token, text):
     except Exception:
         pass
 
+def cmd_admin_set_ref_code(user_id, token, text):
+    """設推廣碼 REF-XXXX BOSS888 → 幫代理設自訂推廣碼"""
+    parts = text.replace("設推廣碼", "").replace("设推广码", "").strip().split()
+    if len(parts) < 2:
+        reply_text(token, "格式：設推廣碼 REF-XXXX BOSS888"); return
+    target, new_code = parts[0].strip(), parts[1].strip().upper()
+    if len(new_code) < 3 or len(new_code) > 20:
+        reply_text(token, "推廣碼長度須 3~20 字元"); return
+    if not re.match(r'^[A-Z0-9_-]+$', new_code):
+        reply_text(token, "推廣碼只能包含英文、數字、底線、連字號"); return
+    # 找代理
+    agent = None
+    if target.upper().startswith("REF-") or target.upper().startswith("AGENT-"):
+        r = sb().table("agents").select("*").eq("agent_code", target.upper()).execute()
+        if r.data: agent = r.data[0]
+    if not agent:
+        r = sb().table("agents").select("*").eq("custom_ref_code", target.upper()).execute()
+        if r.data: agent = r.data[0]
+    if not agent:
+        r = sb().table("agents").select("*").eq("agent_id", target).execute()
+        if r.data: agent = r.data[0]
+    if not agent:
+        reply_text(token, f"找不到代理：{target}"); return
+    # 檢查碼是否已被使用
+    existing = sb().table("agents").select("agent_id").eq("custom_ref_code", new_code).neq("agent_id", agent["agent_id"]).execute()
+    if existing.data:
+        reply_text(token, f"推廣碼 {new_code} 已被其他代理使用"); return
+    sb().table("agents").update({"custom_ref_code": new_code}).eq("agent_id", agent["agent_id"]).execute()
+    reply_text(token, f"✅ {agent['agent_code']} 的推廣碼已設為 {new_code}")
+
+def cmd_admin_set_grant(user_id, token, text):
+    """設贈送 REF-XXXX 24h → 設定代理碼贈送時間"""
+    parts = text.replace("設贈送", "").replace("设赠送", "").strip().split()
+    if len(parts) < 2:
+        reply_text(token, "格式：設贈送 REF-XXXX 24h 或 7天"); return
+    target, duration_str = parts[0].strip(), parts[1].strip()
+    # 解析時間
+    m = re.match(r'^(\d+)\s*(h|小時|hour|hours|天|d|day|days)$', duration_str.lower())
+    if not m:
+        reply_text(token, "格式錯誤，例如：24h、7天、168h"); return
+    val = int(m.group(1))
+    unit = m.group(2)
+    if unit in ("天", "d", "day", "days"):
+        hours = val * 24
+    else:
+        hours = val
+    if hours <= 0 or hours > 8760:
+        reply_text(token, "贈送時間須在 1h ~ 365天 之間"); return
+    # 找代理
+    agent = None
+    if target.upper().startswith("REF-") or target.upper().startswith("AGENT-"):
+        r = sb().table("agents").select("*").eq("agent_code", target.upper()).execute()
+        if r.data: agent = r.data[0]
+    if not agent:
+        r = sb().table("agents").select("*").eq("custom_ref_code", target.upper()).execute()
+        if r.data: agent = r.data[0]
+    if not agent:
+        r = sb().table("agents").select("*").eq("agent_id", target).execute()
+        if r.data: agent = r.data[0]
+    if not agent:
+        reply_text(token, f"找不到代理：{target}"); return
+    sb().table("agents").update({"grant_hours": hours}).eq("agent_id", agent["agent_id"]).execute()
+    label = f"{hours//24} 天" if hours >= 24 and hours % 24 == 0 else f"{hours} 小時"
+    reply_text(token, f"✅ {agent.get('custom_ref_code') or agent['agent_code']} 的贈送時間已設為 {label}")
+
 def cmd_agent_extend(user_id, token, text, agent):
     """代理延長指令：延長 REF-XXXX X天"""
     parts = text.strip().split()
@@ -1285,21 +1350,16 @@ def _do_gw_reply(text: str) -> str:
         pass
     return f"✅ 已傳送自訂訊息給 {account}"
 
-def get_promo_code(code_str: str):
-    """從 DB 查詢活動碼，回傳 row dict 或 None"""
-    r = (sb().table("promo_codes").select("*")
-           .eq("code", code_str.lower())
+def get_agent_by_custom_code(code_str: str):
+    """用 custom_ref_code 查代理，回傳 agent row 或 None"""
+    r = (sb().table("agents").select("*")
+           .eq("custom_ref_code", code_str.upper())
            .eq("is_active", True)
            .execute())
-    if not r.data:
-        return None
-    row = r.data[0]
-    if row.get("max_uses") and row.get("used_count", 0) >= row["max_uses"]:
-        return None
-    return row
+    return r.data[0] if r.data else None
 
 def _has_used(user_id: str, code_type: str) -> bool:
-    """檢查用戶是否已使用過某類型的碼（promo 或 referral）"""
+    """檢查用戶是否已使用過某類型的碼（agent_code / referral）"""
     r = (sb().table("referral_events").select("id")
            .eq("referee_id", user_id)
            .eq("code_type", code_type)
@@ -1310,37 +1370,43 @@ def cmd_enter_code(user_id, token, text, member):
     import re
     # 清理輸入：去掉前綴、空格、冒號，取得純碼
     raw = text.replace("好友推薦碼", "").replace("好友推荐码", "").replace("推薦碼", "").replace("推荐码", "").strip().strip(":").strip()
-    # 去掉 REF- 前綴後查活動碼
     code_clean = re.sub(r'^REF-', '', raw, flags=re.IGNORECASE).strip()
-    promo = get_promo_code(code_clean)
-    if promo:
-        # 每人限用一次活動碼（查 referral_events）
-        if _has_used(user_id, "promo"):
-            reply_text(token, "⚠️ 每人限用一次活動碼"); return
-        bonus_hours = promo["bonus_hours"]
+
+    # 1. 查代理碼（custom_ref_code）
+    agent = get_agent_by_custom_code(code_clean)
+    if agent:
+        if _has_used(user_id, "agent_code"):
+            reply_text(token, "⚠️ 每人限用一次推廣碼"); return
+        if agent["agent_id"] == user_id:
+            reply_text(token, "不能輸入自己的推廣碼"); return
+        bonus_hours = agent.get("grant_hours") or 6
         exp = member.get("expire_at")
-        base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), now) if exp else now
         new_exp = (base + timedelta(hours=bonus_hours)).isoformat()
         sb().table("members").update({
-            "expire_at": new_exp
+            "expire_at": new_exp,
+            "referred_by": agent["agent_id"],
         }).eq("user_id", user_id).execute()
-        # 更新使用次數
-        sb().table("promo_codes").update({
-            "used_count": promo.get("used_count", 0) + 1
-        }).eq("code", code_clean.lower()).execute()
-        # 記錄推薦事件
         sb().table("referral_events").insert({
+            "referrer_id": agent["agent_id"],
             "referee_id": user_id,
-            "code_used": code_clean.lower(),
-            "code_type": "promo",
-            "event_type": "used_promo",
+            "code_used": agent["custom_ref_code"],
+            "code_type": "agent_code",
+            "event_type": "used_agent_code",
             "bonus_given_hours": bonus_hours,
         }).execute()
         days = bonus_hours // 24
-        label = f"+{days} 天" if bonus_hours >= 24 else f"+{bonus_hours} 小時"
-        reply_text(token, f"✅ 活動碼兌換成功！使用期限 {label} 🎁"); return
+        hours_rem = bonus_hours % 24
+        if days and hours_rem:
+            label = f"+{days} 天 {hours_rem} 小時"
+        elif days:
+            label = f"+{days} 天"
+        else:
+            label = f"+{bonus_hours} 小時"
+        reply_text(token, f"✅ 推廣碼兌換成功！使用期限 {label} 🎁"); return
 
-    # 查推薦碼：自動補 REF- 前綴
+    # 2. 查推薦碼（REF-XXXX，會員互推）
     code_upper = code_clean.upper()
     if not code_upper.startswith("REF-"):
         code_upper = "REF-" + code_upper
@@ -1348,7 +1414,6 @@ def cmd_enter_code(user_id, token, text, member):
     if not r_check.data:
         reply_text(token, "找不到這個碼，請確認後再試"); return
     code = code_upper
-    # 每人限用一次推薦碼（查 referral_events）
     if _has_used(user_id, "referral"):
         reply_text(token, "⚠️ 每人限用一次推薦碼"); return
     referrer = r_check.data[0]
@@ -1370,7 +1435,6 @@ def cmd_enter_code(user_id, token, text, member):
     base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
     new_exp = (base + timedelta(days=1)).isoformat()
     sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer["user_id"]).execute()
-    # 記錄推薦事件
     sb().table("referral_events").insert({
         "referrer_id": referrer["user_id"],
         "referee_id": user_id,
@@ -1667,7 +1731,11 @@ def handle_message(event):
             "查詢 REF-XXXX\n"
             "→ 查看該用戶下線裂變數據\n\n"
             "設代理 REF-XXXX\n"
-            "→ 設為代理（永久使用）"
+            "→ 設為代理（永久使用）\n\n"
+            "設推廣碼 REF-XXXX BOSS888\n"
+            "→ 幫代理設自訂推廣碼\n\n"
+            "設贈送 REF-XXXX 24h\n"
+            "→ 設定代理碼贈送時間（h/天）"
         ); return
     if text == "維護開":
         if not is_admin(user_id):
@@ -1756,6 +1824,14 @@ def handle_message(event):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
         cmd_admin_set_agent(user_id, token, text); return
+    if text.startswith("設推廣碼") or text.startswith("设推广码"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_set_ref_code(user_id, token, text); return
+    if text.startswith("設贈送") or text.startswith("设赠送"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_set_grant(user_id, token, text); return
     if text.startswith("開通"):
         cmd_admin_activate(user_id, token, text); return
     if text.startswith("延長"):

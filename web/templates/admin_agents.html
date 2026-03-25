@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}代理管理{% endblock %}
+{% block content %}
+<hgroup>
+    <h2>代理管理</h2>
+    <p>共 {{ agents|length }} 個代理</p>
+</hgroup>
+
+<!-- 新增代理 -->
+<article>
+    <header>新增代理</header>
+    <form onsubmit="return createAgent(event)" class="grid">
+        <label>
+            名稱
+            <input type="text" id="newName" placeholder="代理名稱" required>
+        </label>
+        <label>
+            推廣碼
+            <input type="text" id="newCode" placeholder="例如 BOSS888" pattern="[A-Za-z0-9_-]{3,20}">
+        </label>
+        <label>
+            贈送時間(h)
+            <input type="number" id="newGrant" value="6" min="1" max="8760">
+        </label>
+        <label>
+            密碼
+            <input type="text" id="newPw" value="123456">
+        </label>
+        <button type="submit">建立</button>
+    </form>
+    <div id="createMsg"></div>
+</article>
+
+<!-- 代理列表 -->
+<figure>
+<table>
+    <thead>
+        <tr>
+            <th>名稱</th>
+            <th>系統碼</th>
+            <th>推廣碼</th>
+            <th>贈送</th>
+            <th>延長上限</th>
+            <th>狀態</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in agents %}
+        <tr id="row-{{ a.agent_id }}">
+            <td>{{ a.display_name or a.name or '-' }}</td>
+            <td><code>{{ a.agent_code }}</code></td>
+            <td>
+                <input type="text" value="{{ a.custom_ref_code or '' }}"
+                       id="code-{{ a.agent_id }}" style="width:100px;padding:2px 4px;font-size:0.85rem;">
+            </td>
+            <td>
+                <input type="number" value="{{ a.grant_hours or 6 }}"
+                       id="grant-{{ a.agent_id }}" style="width:60px;padding:2px 4px;font-size:0.85rem;" min="1">
+                <small>h</small>
+            </td>
+            <td>
+                <input type="number" value="{{ a.max_extend_days or 31 }}"
+                       id="extend-{{ a.agent_id }}" style="width:50px;padding:2px 4px;font-size:0.85rem;" min="1">
+                <small>天</small>
+            </td>
+            <td>{% if a.is_active %}<ins>啟用</ins>{% else %}<del>停用</del>{% endif %}</td>
+            <td>
+                <button class="outline btn-sm" onclick="saveAgent('{{ a.agent_id }}')">儲存</button>
+                <button class="outline btn-sm secondary" onclick="resetPw('{{ a.agent_id }}', '{{ a.display_name or a.agent_code }}')">重設密碼</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</figure>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function createAgent(e) {
+    e.preventDefault();
+    fetch('/dashboard/api/admin/agents', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            display_name: document.getElementById('newName').value,
+            custom_ref_code: document.getElementById('newCode').value,
+            grant_hours: parseInt(document.getElementById('newGrant').value),
+            password: document.getElementById('newPw').value,
+        })
+    }).then(r => r.json()).then(data => {
+        if (data.ok) {
+            document.getElementById('createMsg').innerHTML = '<small style="color:var(--pico-ins-color)">已建立 ' + data.agent_code + '</small>';
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            document.getElementById('createMsg').innerHTML = '<small style="color:var(--pico-del-color)">' + (data.error || '失敗') + '</small>';
+        }
+    });
+    return false;
+}
+
+function saveAgent(id) {
+    const code = document.getElementById('code-' + id).value.trim();
+    const grant = parseInt(document.getElementById('grant-' + id).value);
+    const extend = parseInt(document.getElementById('extend-' + id).value);
+    fetch('/dashboard/api/admin/agents/' + id, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({custom_ref_code: code, grant_hours: grant, max_extend_days: extend})
+    }).then(r => r.json()).then(data => {
+        if (data.ok) alert('已儲存');
+        else alert(data.error || '失敗');
+    });
+}
+
+function resetPw(id, name) {
+    const pw = prompt('輸入 ' + name + ' 的新密碼：', '123456');
+    if (!pw) return;
+    fetch('/dashboard/api/admin/agents/' + id, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password: pw})
+    }).then(r => r.json()).then(data => {
+        if (data.ok) alert('密碼已重設');
+        else alert(data.error || '失敗');
+    });
+}
+</script>
+{% endblock %}

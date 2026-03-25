@@ -19,6 +19,9 @@
             <li><a href="{{ url_for('dashboard.tree') }}" {% if '/tree' in request.path %}class="active"{% endif %}>代理樹</a></li>
             <li><a href="{{ url_for('dashboard.codes') }}" {% if '/codes' in request.path %}class="active"{% endif %}>推廣碼</a></li>
             <li><a href="{{ url_for('dashboard.settings') }}" {% if '/settings' in request.path %}class="active"{% endif %}>設定</a></li>
+            {% if is_admin %}
+            <li><a href="{{ url_for('dashboard.admin_agents') }}" {% if '/admin' in request.path %}class="active"{% endif %} style="color:var(--pico-mark-background-color);">管理</a></li>
+            {% endif %}
             <li>
                 <small>{{ agent.display_name or agent.agent_code }}</small>
                 <a href="{{ url_for('dashboard.logout') }}" role="button" class="outline secondary btn-sm">登出</a>
