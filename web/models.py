@@ -31,19 +31,20 @@ def get_downline_members(agent, agent_ids=None):
     return r.data or []
 
 def classify_member(m):
-    """判斷會員狀態"""
+    """判斷會員狀態：permanent / active / trial / expired / new"""
     now = datetime.now(timezone.utc)
     if m.get("is_member") and not m.get("expire_at"):
-        return "permanent"  # 永久（管理員/代理）
+        return "permanent"
     if m.get("expire_at"):
         try:
             exp = datetime.fromisoformat(m["expire_at"].replace("Z", "+00:00"))
             if exp > now:
-                return "active"
+                remaining = (exp - now).total_seconds()
+                return "active" if remaining > 86400 else "trial"
             else:
                 return "expired"
         except Exception:
-            return "unknown"
+            return "expired"
     if m.get("trial_start"):
         return "expired"
     return "new"
@@ -54,24 +55,13 @@ def get_fission_stats(agent):
     agent_ids = [agent["agent_id"]] + [a["agent_id"] for a in descendants]
     members = get_downline_members(agent, agent_ids)
 
-    stats = {"total": 0, "active": 0, "trial": 0, "expired": 0, "new": 0, "sub_agents": len(descendants)}
-    now = datetime.now(timezone.utc)
+    stats = {"total": 0, "active": 0, "trial": 0, "expired": 0, "new": 0, "permanent": 0, "sub_agents": len(descendants)}
 
     for m in members:
         stats["total"] += 1
         status = classify_member(m)
-        if status == "active":
-            # 區分正式 vs 試用：>24h = 正式, <24h = 試用
-            exp = datetime.fromisoformat(m["expire_at"].replace("Z", "+00:00"))
-            remaining = (exp - now).total_seconds()
-            if remaining > 86400:
-                stats["active"] += 1
-            else:
-                stats["trial"] += 1
-        elif status == "expired":
-            stats["expired"] += 1
-        elif status == "new":
-            stats["new"] += 1
+        if status in stats:
+            stats[status] += 1
 
     # 直推人數
     direct_members = [m for m in members if m.get("referred_by") == agent["agent_id"]]

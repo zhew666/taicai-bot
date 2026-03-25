@@ -3,51 +3,44 @@
 {% block content %}
 <hgroup>
     <h2>帳號設定</h2>
-    <p>{{ agent.agent_code }}</p>
+    <p>{{ agent.display_name or agent.agent_code }}</p>
 </hgroup>
 
 <div class="grid">
     <article>
-        <header>修改顯示名稱</header>
-        <form onsubmit="return updateProfile(event)">
-            <label>
-                顯示名稱
+        <header>帳號資訊</header>
+        <table>
+            <tr><td>推廣碼</td><td><code>{{ agent.custom_ref_code or agent.agent_code }}</code></td></tr>
+            <tr><td>贈送時間</td><td>{{ agent.grant_hours or 6 }} 小時</td></tr>
+            <tr><td>每次最大延長</td><td>{{ agent.max_extend_days or 31 }} 天</td></tr>
+            <tr><td>狀態</td><td>{% if agent.is_active %}啟用{% else %}停用{% endif %}</td></tr>
+        </table>
+        <small style="opacity:0.6;">推廣碼和贈送時間由管理員設定</small>
+    </article>
+
+    <div>
+        <article>
+            <header>修改顯示名稱</header>
+            <form onsubmit="return updateProfile(event)">
                 <input type="text" id="displayName" value="{{ agent.display_name or '' }}" placeholder="輸入你的名稱" required>
-            </label>
-            <button type="submit">儲存</button>
-        </form>
-        <div id="profileMsg"></div>
-    </article>
+                <button type="submit">儲存</button>
+            </form>
+            <div id="profileMsg"></div>
+        </article>
 
-    <article>
-        <header>修改密碼</header>
-        <form onsubmit="return changePassword(event)">
-            {% if agent.password_hash %}
-            <label>
-                舊密碼
-                <input type="password" id="oldPw" placeholder="輸入舊密碼" required>
-            </label>
-            {% endif %}
-            <label>
-                新密碼
-                <input type="password" id="newPw" placeholder="至少 6 字元" minlength="6" required>
-            </label>
-            <button type="submit">更新密碼</button>
-        </form>
-        <div id="pwMsg"></div>
-    </article>
+        <article>
+            <header>修改密碼</header>
+            <form onsubmit="return changePassword(event)">
+                {% if agent.password_hash %}
+                <input type="password" id="oldPw" placeholder="舊密碼" required>
+                {% endif %}
+                <input type="password" id="newPw" placeholder="新密碼（至少 6 字元）" minlength="6" required>
+                <button type="submit">更新密碼</button>
+            </form>
+            <div id="pwMsg"></div>
+        </article>
+    </div>
 </div>
-
-<article>
-    <header>帳號資訊</header>
-    <table>
-        <tr><td>代理碼</td><td><code>{{ agent.agent_code }}</code></td></tr>
-        <tr><td>自訂推廣碼</td><td>{{ agent.custom_ref_code or '（未設定）' }}</td></tr>
-        <tr><td>層級</td><td>{{ agent.depth or 1 }}</td></tr>
-        <tr><td>每次最大延長</td><td>{{ agent.max_extend_days or 31 }} 天</td></tr>
-        <tr><td>狀態</td><td>{% if agent.is_active %}啟用{% else %}停用{% endif %}</td></tr>
-    </table>
-</article>
 {% endblock %}
 
 {% block scripts %}

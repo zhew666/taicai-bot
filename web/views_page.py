@@ -19,27 +19,40 @@ def init_app(bp):
         result = models.get_members_paginated(g.agent, page=page, status_filter=status, search=search)
         return render_template("members.html", agent=g.agent, is_admin=g.is_admin, **result)
 
-    @bp.route("/tree")
-    @login_required
-    def tree():
-        return render_template("tree.html", agent=g.agent, is_admin=g.is_admin)
-
     @bp.route("/settings")
     @login_required
     def settings():
         return render_template("settings.html", agent=g.agent, is_admin=g.is_admin)
 
-    @bp.route("/codes")
-    @login_required
-    def codes():
-        r = sb().table("custom_referral_codes").select("*") \
-            .eq("owner_id", g.agent["agent_id"]).execute()
-        custom_codes = r.data or []
-        return render_template("codes.html", agent=g.agent, is_admin=g.is_admin, custom_codes=custom_codes)
-
-    # ── 管理員專用頁面 ──
+    # ── 管理員專用 ──
     @bp.route("/admin/agents")
     @admin_required
     def admin_agents():
-        agents = sb().table("agents").select("*").eq("tenant_id", g.agent["tenant_id"]).order("created_at").execute().data or []
-        return render_template("admin_agents.html", agent=g.agent, is_admin=True, agents=agents)
+        agents_list = sb().table("agents").select("*") \
+            .eq("tenant_id", g.agent["tenant_id"]).order("created_at").execute().data or []
+        # 計算每個代理的直推下線數
+        members = sb().table("members").select("referred_by") \
+            .eq("tenant_id", g.agent["tenant_id"]).execute().data or []
+        ref_counts = {}
+        for m in members:
+            rb = m.get("referred_by")
+            if rb:
+                ref_counts[rb] = ref_counts.get(rb, 0) + 1
+        for a in agents_list:
+            a["_downline_count"] = ref_counts.get(a["agent_id"], 0)
+        return render_template("admin_agents.html", agent=g.agent, is_admin=True, agents=agents_list)
+
+    # 保留 tree 和 codes 路由做重定向，避免 404
+    @bp.route("/tree")
+    @login_required
+    def tree():
+        from flask import redirect, url_for
+        if g.is_admin:
+            return redirect(url_for("dashboard.admin_agents"))
+        return redirect(url_for("dashboard.index"))
+
+    @bp.route("/codes")
+    @login_required
+    def codes():
+        from flask import redirect, url_for
+        return redirect(url_for("dashboard.settings"))

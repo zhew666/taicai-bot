@@ -6,9 +6,13 @@ import os
 
 _sb_url = os.environ.get("SUPABASE_URL", "")
 _sb_key = os.environ.get("SUPABASE_KEY", "")
+_sb_client = None
 
 def sb():
-    return create_client(_sb_url, _sb_key)
+    global _sb_client
+    if _sb_client is None:
+        _sb_client = create_client(_sb_url, _sb_key)
+    return _sb_client
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()

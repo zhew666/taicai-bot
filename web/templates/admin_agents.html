@@ -9,24 +9,32 @@
 <!-- 新增代理 -->
 <article>
     <header>新增代理</header>
-    <form onsubmit="return createAgent(event)" class="grid">
-        <label>
-            名稱
-            <input type="text" id="newName" placeholder="代理名稱" required>
-        </label>
-        <label>
-            推廣碼
-            <input type="text" id="newCode" placeholder="例如 BOSS888" pattern="[A-Za-z0-9_-]{3,20}">
-        </label>
-        <label>
-            贈送時間(h)
-            <input type="number" id="newGrant" value="6" min="1" max="8760">
-        </label>
-        <label>
-            密碼
-            <input type="text" id="newPw" value="123456">
-        </label>
-        <button type="submit">建立</button>
+    <form onsubmit="return createAgent(event)">
+        <div class="grid">
+            <label>
+                名稱 *
+                <input type="text" id="newName" placeholder="代理名稱" required>
+            </label>
+            <label>
+                推廣碼
+                <input type="text" id="newCode" placeholder="例如 BOSS888" pattern="[A-Za-z0-9_-]{3,20}">
+            </label>
+        </div>
+        <div class="grid">
+            <label>
+                贈送時間（小時）
+                <input type="number" id="newGrant" value="6" min="1" max="8760">
+            </label>
+            <label>
+                延長上限（天）
+                <input type="number" id="newExtend" value="31" min="1">
+            </label>
+            <label>
+                登入密碼
+                <input type="text" id="newPw" value="123456">
+            </label>
+        </div>
+        <button type="submit">建立代理</button>
     </form>
     <div id="createMsg"></div>
 </article>
@@ -37,43 +45,57 @@
     <thead>
         <tr>
             <th>名稱</th>
-            <th>系統碼</th>
             <th>推廣碼</th>
-            <th>贈送</th>
-            <th>延長上限</th>
+            <th>贈送(h)</th>
+            <th>延長上限(天)</th>
+            <th>下線數</th>
             <th>狀態</th>
             <th>操作</th>
         </tr>
     </thead>
     <tbody>
         {% for a in agents %}
-        <tr id="row-{{ a.agent_id }}">
-            <td>{{ a.display_name or a.name or '-' }}</td>
-            <td><code>{{ a.agent_code }}</code></td>
+        {% if not a.is_admin %}
+        <tr>
+            <td>
+                <input type="text" value="{{ a.display_name or a.name or '' }}"
+                       id="name-{{ a.agent_id }}" style="width:80px;padding:2px 4px;font-size:0.85rem;">
+            </td>
             <td>
                 <input type="text" value="{{ a.custom_ref_code or '' }}"
-                       id="code-{{ a.agent_id }}" style="width:100px;padding:2px 4px;font-size:0.85rem;">
+                       id="code-{{ a.agent_id }}" style="width:90px;padding:2px 4px;font-size:0.85rem;">
             </td>
             <td>
                 <input type="number" value="{{ a.grant_hours or 6 }}"
-                       id="grant-{{ a.agent_id }}" style="width:60px;padding:2px 4px;font-size:0.85rem;" min="1">
-                <small>h</small>
+                       id="grant-{{ a.agent_id }}" style="width:55px;padding:2px 4px;font-size:0.85rem;" min="1">
             </td>
             <td>
                 <input type="number" value="{{ a.max_extend_days or 31 }}"
                        id="extend-{{ a.agent_id }}" style="width:50px;padding:2px 4px;font-size:0.85rem;" min="1">
-                <small>天</small>
             </td>
-            <td>{% if a.is_active %}<ins>啟用</ins>{% else %}<del>停用</del>{% endif %}</td>
+            <td>{{ a._downline_count or 0 }}</td>
             <td>
+                {% if a.is_active %}<ins>啟用</ins>{% else %}<del>停用</del>{% endif %}
+            </td>
+            <td style="white-space:nowrap;">
                 <button class="outline btn-sm" onclick="saveAgent('{{ a.agent_id }}')">儲存</button>
-                <button class="outline btn-sm secondary" onclick="resetPw('{{ a.agent_id }}', '{{ a.display_name or a.agent_code }}')">重設密碼</button>
+                <button class="outline btn-sm secondary" onclick="resetPw('{{ a.agent_id }}', '{{ a.display_name or a.agent_code }}')">密碼</button>
+                <button class="outline btn-sm {% if a.is_active %}secondary{% endif %}" onclick="toggleAgent('{{ a.agent_id }}', {{ 'false' if a.is_active else 'true' }})">
+                    {{ '停用' if a.is_active else '啟用' }}
+                </button>
             </td>
         </tr>
+        {% endif %}
         {% endfor %}
     </tbody>
 </table>
 </figure>
+
+<!-- 代理樹 -->
+<article>
+    <header>代理樹</header>
+    <div id="tree-container">載入中...</div>
+</article>
 {% endblock %}
 
 {% block scripts %}
@@ -87,11 +109,12 @@ function createAgent(e) {
             display_name: document.getElementById('newName').value,
             custom_ref_code: document.getElementById('newCode').value,
             grant_hours: parseInt(document.getElementById('newGrant').value),
+            max_extend_days: parseInt(document.getElementById('newExtend').value),
             password: document.getElementById('newPw').value,
         })
     }).then(r => r.json()).then(data => {
         if (data.ok) {
-            document.getElementById('createMsg').innerHTML = '<small style="color:var(--pico-ins-color)">已建立 ' + data.agent_code + '</small>';
+            document.getElementById('createMsg').innerHTML = '<small style="color:var(--pico-ins-color)">已建立</small>';
             setTimeout(() => location.reload(), 1000);
         } else {
             document.getElementById('createMsg').innerHTML = '<small style="color:var(--pico-del-color)">' + (data.error || '失敗') + '</small>';
@@ -101,13 +124,15 @@ function createAgent(e) {
 }
 
 function saveAgent(id) {
-    const code = document.getElementById('code-' + id).value.trim();
-    const grant = parseInt(document.getElementById('grant-' + id).value);
-    const extend = parseInt(document.getElementById('extend-' + id).value);
     fetch('/dashboard/api/admin/agents/' + id, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({custom_ref_code: code, grant_hours: grant, max_extend_days: extend})
+        body: JSON.stringify({
+            display_name: document.getElementById('name-' + id).value.trim(),
+            custom_ref_code: document.getElementById('code-' + id).value.trim(),
+            grant_hours: parseInt(document.getElementById('grant-' + id).value),
+            max_extend_days: parseInt(document.getElementById('extend-' + id).value),
+        })
     }).then(r => r.json()).then(data => {
         if (data.ok) alert('已儲存');
         else alert(data.error || '失敗');
@@ -126,5 +151,38 @@ function resetPw(id, name) {
         else alert(data.error || '失敗');
     });
 }
+
+function toggleAgent(id, active) {
+    if (!confirm(active ? '確定啟用？' : '確定停用？')) return;
+    fetch('/dashboard/api/admin/agents/' + id, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({is_active: active})
+    }).then(r => r.json()).then(data => {
+        if (data.ok) location.reload();
+        else alert(data.error || '失敗');
+    });
+}
+
+// 代理樹
+fetch('/dashboard/api/tree')
+.then(r => r.json())
+.then(data => {
+    document.getElementById('tree-container').innerHTML = renderNode(data, true);
+});
+function renderNode(node, open) {
+    let html = '<details' + (open ? ' open' : '') + ' style="margin-left:' + ((node.depth || 0) > 0 ? '1rem' : '0') + '">';
+    html += '<summary>';
+    html += '<strong>' + esc(node.display_name) + '</strong> ';
+    if (node.agent_code !== 'ADMIN') html += '<code>' + esc(node.agent_code) + '</code> ';
+    html += '<small>直推 ' + node.direct_members + ' 人</small>';
+    html += '</summary>';
+    if (node.children && node.children.length > 0) {
+        for (const child of node.children) html += renderNode(child, false);
+    }
+    html += '</details>';
+    return html;
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 </script>
 {% endblock %}

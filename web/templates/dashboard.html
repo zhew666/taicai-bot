@@ -6,6 +6,21 @@
     <p>{{ agent.display_name or agent.agent_code }} 的代理總覽</p>
 </hgroup>
 
+<!-- 推廣碼區塊 -->
+<article>
+    <div class="grid">
+        <div>
+            <small style="opacity:0.6;">我的推廣碼</small>
+            <h2 style="margin:0.25rem 0;">
+                <code id="myCode">{{ agent.custom_ref_code or agent.agent_code }}</code>
+                <button class="outline btn-sm" onclick="copyCode()" style="margin-left:0.5rem;">複製</button>
+            </h2>
+            <small style="opacity:0.6;">用戶輸入此碼可獲得 {{ agent.grant_hours or 6 }} 小時使用時間</small>
+        </div>
+    </div>
+</article>
+
+<!-- 統計卡片 -->
 <div class="grid">
     <article>
         <header>總下線</header>
@@ -39,14 +54,20 @@
         <h1>{{ stats.new }}</h1>
         <footer>尚未啟用試用</footer>
     </article>
-    <article>
-        <header>我的推廣碼</header>
-        <h2>{{ agent.custom_ref_code or agent.agent_code }}</h2>
-    </article>
 </div>
 
 <p>
     <a href="{{ url_for('dashboard.members') }}" role="button">查看會員列表</a>
-    <a href="{{ url_for('dashboard.tree') }}" role="button" class="outline">查看代理樹</a>
 </p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function copyCode() {
+    const code = document.getElementById('myCode').textContent.trim();
+    navigator.clipboard.writeText(code).then(() => {
+        alert('已複製：' + code);
+    });
+}
+</script>
 {% endblock %}

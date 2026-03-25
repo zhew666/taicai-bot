@@ -61,7 +61,6 @@ def init_app(bp):
 
         sb().table("members").update({
             "expire_at": new_exp.isoformat(),
-            "is_member": False,
         }).eq("user_id", target["user_id"]).execute()
 
         # Log action
@@ -204,19 +203,24 @@ def init_app(bp):
 
         agent_id = str(uuid.uuid4())
         agent_code = f"AGENT-{custom_code}" if custom_code else f"AGENT-{uuid.uuid4().hex[:6].upper()}"
+        # 自動掛到當前管理員下
+        parent_id = g.agent["agent_id"]
+        parent_path = g.agent.get("path", f"/{parent_id}/")
+        new_path = f"{parent_path}{agent_id}/"
+        new_depth = (g.agent.get("depth") or 0) + 1
 
         sb().table("agents").insert({
             "agent_id": agent_id,
             "agent_code": agent_code,
-            "level": 1,
-            "parent_agent_id": None,
+            "level": new_depth,
+            "parent_agent_id": parent_id,
             "name": display_name,
             "display_name": display_name,
             "max_extend_days": max_extend,
             "is_active": True,
             "tenant_id": g.agent["tenant_id"],
-            "path": f"/{agent_id}/",
-            "depth": 1,
+            "path": new_path,
+            "depth": new_depth,
             "custom_ref_code": custom_code or None,
             "grant_hours": grant_hours,
             "password_hash": hash_password(password),
