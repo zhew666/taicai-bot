@@ -244,8 +244,6 @@ def push_text(user_id: str, text: str):
                 time.sleep(wait)
             elif attempt == 2:
                 print(f"[push_text] 失敗 3 次放棄: {e}", flush=True)
-            else:
-                time.sleep(1)
 
 def reply_text(token: str, text: str):
     for attempt in range(3):
@@ -257,8 +255,6 @@ def reply_text(token: str, text: str):
         except Exception as e:
             if attempt == 2:
                 print(f"[reply_text] 失敗 3 次放棄: {e}", flush=True)
-            else:
-                time.sleep(1)
 
 def get_user_platform(member: dict) -> str:
     """取得用戶偏好平台"""
