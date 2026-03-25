@@ -5,10 +5,6 @@ from .utils import get_session, sb
 
 COOKIE_NAME = "bjzy_session"
 
-def _get_admin_codes():
-    raw = os.environ.get("ADMIN_REF_CODE", "")
-    return [c.strip().upper() for c in raw.split(",") if c.strip()]
-
 def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -22,10 +18,7 @@ def login_required(f):
             return redirect(url_for("dashboard.login"))
         g.agent = r.data[0]
         g.session = session
-        # Check if admin
-        admin_codes = _get_admin_codes()
-        g.is_admin = g.agent.get("agent_code", "") in admin_codes or \
-                     g.agent.get("custom_ref_code", "") in admin_codes
+        g.is_admin = bool(g.agent.get("is_admin"))
         return f(*args, **kwargs)
     return decorated
 
