@@ -34,6 +34,7 @@ REGISTER_URL    = os.environ.get("REGISTER_URL", "gw55.GW1688.NET")
 ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
 ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
 TG_BOT_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TG_WEBHOOK_SECRET = os.environ.get("TG_WEBHOOK_SECRET", "")
 TG_GW_CHAT_IDS  = [x.strip() for x in os.environ.get("TELEGRAM_GW_CHAT_IDS", "").split(",") if x.strip()]
 TRIAL_HOURS    = 1
 WARN_MINUTES   = 15
@@ -57,8 +58,8 @@ def _refresh_dg_sexy():
         _dg_sexy_cache["fwd"] = {sid: f"S{i+1:02d}" for i, sid in enumerate(sids)}
         _dg_sexy_cache["rev"] = {v: k for k, v in _dg_sexy_cache["fwd"].items()}
         _dg_sexy_cache["ts"] = now
-    except:
-        pass
+    except Exception as e:
+        print(f"[DG Sexy] 刷新失敗: {e}", flush=True)
 EV_FIELDS    = ["ev_banker", "ev_player", "ev_super6", "ev_pair_p", "ev_pair_b", "ev_tie"]
 EV_LABELS    = {"ev_banker": "莊", "ev_player": "閒", "ev_tie": "和",
                 "ev_super6": "超六", "ev_pair_p": "閒對", "ev_pair_b": "莊對"}
@@ -111,8 +112,8 @@ def _get_config(key: str, default: str = "") -> str:
             rows = sb().table("system_config").select("key,value").execute().data or []
             _config_cache["data"] = {r["key"]: r["value"] for r in rows}
             _config_cache["ts"] = now
-        except:
-            pass
+        except Exception as e:
+            print(f"[Config] 快取刷新失敗: {e}", flush=True)
     return _config_cache["data"].get(key, default)
 
 def _set_config(key: str, value: str):
@@ -228,6 +229,9 @@ def push_text(user_id: str, text: str):
                     PushMessageRequest(to=user_id, messages=[TextMessage(text=text)]))
             return
         except Exception as e:
+            if "429" in str(e) and attempt < 2:
+                print(f"[push_text] 429 限速，重試 {attempt+1}", flush=True)
+                continue
             if attempt == 2:
                 print(f"[push_text] 失敗 3 次放棄: {e}", flush=True)
 
@@ -263,7 +267,7 @@ def get_platform_tables(platform: str, admin: bool = False) -> list:
         try:
             rows = sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data
             return [r["table_id"] for r in rows if not _hide_sexy(r["table_id"], admin)] if rows else []
-        except:
+        except Exception:
             return []
     return ALL_TABLES_MT
 
@@ -320,7 +324,7 @@ def format_hand(row: dict) -> str:
     dealer_str = f"｜荷官：{dealer}" if dealer and dealer != "未知" else ""
 
     next_hand = hand + 1
-    plat_tag = f"[{plat}] " if plat == "DG" else ""
+    plat_tag = f"[{plat}] "
     result = _hand_result(row)
 
     # 莊閒 EV 比較 → 推薦標記放前面
@@ -530,7 +534,7 @@ def cmd_airdrop(user_id, token, text, member):
         "",
         f"監控廳數：{active} 廳",
         f"目前正EV：{pos} 廳",
-        f"到期時間：{exp_tw}",
+        f"空投結束時間：{exp_tw}",
         "",
         "偵測到正EV時立即推播通知",
     ]
@@ -580,7 +584,7 @@ def cmd_guide(user_id, token, member):
         rec = "🔵閒"
     else:
         rec = None
-    plat_tag = f"[{plat}] " if plat == "DG" else ""
+    plat_tag = f"[{plat}] "
     rec_str = f"  {rec}" if rec else ""
     if best_val > 0:
         msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
@@ -677,13 +681,23 @@ def get_agent(user_id: str):
     except Exception:
         return None
 
+_admin_cache = {"uids": set(), "ts": 0}
+_ADMIN_CACHE_TTL = 60  # 秒
+
 def is_admin(user_id: str) -> bool:
     if ADMIN_USER_ID and user_id == ADMIN_USER_ID:
         return True
     if ADMIN_REF_CODE:
-        codes = [c.strip().upper() for c in ADMIN_REF_CODE.split(",") if c.strip()]
-        r = sb().table("members").select("user_id").in_("referral_code", codes).execute()
-        if any(row["user_id"] == user_id for row in (r.data or [])):
+        now = time.time()
+        if now - _admin_cache["ts"] > _ADMIN_CACHE_TTL:
+            try:
+                codes = [c.strip().upper() for c in ADMIN_REF_CODE.split(",") if c.strip()]
+                r = sb().table("members").select("user_id").in_("referral_code", codes).execute()
+                _admin_cache["uids"] = {row["user_id"] for row in (r.data or [])}
+                _admin_cache["ts"] = now
+            except Exception:
+                pass
+        if user_id in _admin_cache["uids"]:
             return True
     return False
 
@@ -759,18 +773,33 @@ def cmd_admin_activate(user_id, token, text):
         except Exception as e:
             print(f"[Admin] 推薦人加天失敗: {e}", flush=True)
 
+def _parse_duration(s: str):
+    """解析時間字串，回傳 (timedelta, 顯示文字) 或 None"""
+    s = s.strip().lower()
+    m = re.match(r'^(\d+)\s*(h|小時|hour|hours|天|d|day|days)?$', s)
+    if not m:
+        return None
+    val = int(m.group(1))
+    unit = m.group(2) or "天"
+    if val <= 0:
+        return None
+    if unit in ("h", "小時", "hour", "hours"):
+        return timedelta(hours=val), f"{val} 小時"
+    return timedelta(days=val), f"{val} 天"
+
 def cmd_admin_extend(user_id, token, text):
-    """延長 <user_id或REF碼> <天數>"""
+    """延長 <user_id或REF碼> <天數或小時>"""
     if not is_admin(user_id):
         reply_text(token, "❌ 無權限"); return
     parts = text.strip().split()
     if len(parts) < 2:
-        reply_text(token, "格式：延長 <user_id或REF碼> <天數>"); return
+        reply_text(token, "格式：延長 REF-XXXX 7天 或 延長 REF-XXXX 3h"); return
     target = parts[1]
-    try:
-        days = int(parts[2]) if len(parts) >= 3 else 7
-    except ValueError:
-        reply_text(token, "天數請輸入數字"); return
+    dur_str = parts[2] if len(parts) >= 3 else "7天"
+    parsed = _parse_duration(dur_str)
+    if not parsed:
+        reply_text(token, "格式錯誤\n例如：延長 REF-XXXX 7天 / 3h / 24小時"); return
+    delta, label = parsed
 
     if target.upper().startswith("REF-"):
         r = sb().table("members").select("*").eq("referral_code", target.upper()).execute()
@@ -784,14 +813,15 @@ def cmd_admin_extend(user_id, token, text):
     uid = m["user_id"]
     exp = m.get("expire_at")
     base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
-    new_exp = (base + timedelta(days=days)).isoformat()
+    new_exp = (base + delta).isoformat()
     sb().table("members").update({"expire_at": new_exp}).eq("user_id", uid).execute()
 
     new_exp_tw = datetime.fromisoformat(new_exp).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
-    reply_text(token, f"✅ {uid} 延長 {days} 天\n新到期：{new_exp_tw}")
+    reply_text(token, f"✅ {uid} 延長 {label}\n新到期：{new_exp_tw}")
     try:
-        push_text(uid, f"🎉 你的使用期限已延長 {days} 天！新到期時間：{new_exp_tw}")
-    except: pass
+        push_text(uid, f"🎉 你的使用期限已延長 {label}！新到期時間：{new_exp_tw}")
+    except Exception as e:
+        print(f"[Extend] 通知用戶失敗: {e}", flush=True)
 
 def cmd_admin_query(user_id, token, text):
     """查詢 REF-XXXX → 顯示該用戶的下線裂變數據"""
@@ -897,7 +927,8 @@ def cmd_admin_set_agent(user_id, token, text):
     reply_text(token, f"✅ {target_code} 已設為代理（永久使用）")
     try:
         push_text(target_uid, "🎉 你的帳號已升級為代理，永久使用所有功能！")
-    except: pass
+    except Exception:
+        pass
 
 def cmd_agent_extend(user_id, token, text, agent):
     """代理延長指令：延長 REF-XXXX X天"""
@@ -975,7 +1006,8 @@ def cmd_agent_confirm(user_id, token):
     reply_text(token, f"✅ 已延長 {target_ref} {days} 天\n新到期：{new_exp_tw}")
     try:
         push_text(target_uid, f"🎉 你的使用期限已延長 {days} 天！新到期時間：{new_exp_tw}")
-    except: pass
+    except Exception:
+        pass
     return True
 
 # ── GW 金盈匯相關 ──────────────────────────────────────────
@@ -1137,7 +1169,8 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
             f"使用期限延長 {days} 天\n"
             f"新到期時間：{new_exp_tw}\n\n"
             f"感謝使用百家之眼！")
-    except: pass
+    except Exception:
+        pass
     return f"✅ 已確認 {account}\n儲值 {amount} 點 → 延長 {days} 天\n新到期：{new_exp_tw}"
 
 def _do_gw_reject(text: str) -> str:
@@ -1158,7 +1191,8 @@ def _do_gw_reject(text: str) -> str:
             "請確認是否已完成註冊及儲值\n\n"
             "註冊網址：gw55.GW1688.NET\n"
             "完成後請重新輸入「確認儲值」")
-    except: pass
+    except Exception:
+        pass
     return f"✅ 已標記 {account} 未通過"
 
 def _do_gw_not_deposited(text: str) -> str:
@@ -1180,7 +1214,8 @@ def _do_gw_not_deposited(text: str) -> str:
             "💡 儲值 5,000 點 → 7 天\n"
             "💡 儲值 10,000 點 → 31 天\n\n"
             "儲值完成後回來輸入「確認儲值」")
-    except: pass
+    except Exception:
+        pass
     return f"✅ 已通知 {account} 用戶尚未儲值"
 
 def _do_gw_not_found(text: str) -> str:
@@ -1201,7 +1236,8 @@ def _do_gw_not_found(text: str) -> str:
             "金盈匯查無您綁定的帳號\n"
             "請確認帳號是否正確\n\n"
             "如需重新綁定，請輸入「綁定帳號」")
-    except: pass
+    except Exception:
+        pass
     return f"✅ 已通知 {account} 用戶查無此帳號"
 
 def _do_gw_ask_cs(text: str) -> str:
@@ -1221,7 +1257,8 @@ def _do_gw_ask_cs(text: str) -> str:
             "您的帳號需要由金盈匯客服協助處理\n"
             "請直接聯繫金盈匯線上客服\n\n"
             "👉 gw55.GW1688.NET")
-    except: pass
+    except Exception:
+        pass
     return f"✅ 已通知 {account} 用戶聯繫金盈匯客服"
 
 def _do_gw_reply(text: str) -> str:
@@ -1240,7 +1277,8 @@ def _do_gw_reply(text: str) -> str:
             f"📋 金盈匯客服回覆\n"
             f"━━━━━━━━━━━━━━\n"
             f"{message}")
-    except: pass
+    except Exception:
+        pass
     return f"✅ 已傳送自訂訊息給 {account}"
 
 def get_promo_code(code_str: str):
@@ -1340,7 +1378,8 @@ def cmd_enter_code(user_id, token, text, member):
     reply_text(token, "✅ 推薦碼輸入成功！試用時間已延長至 6 小時 🎁")
     try:
         push_text(referrer["user_id"], "🎉 有好友使用你的推薦碼，使用期限 +1 天！")
-    except: pass
+    except Exception:
+        pass
 
 def cmd_migrate(user_id, token, text, member):
     """解析舊系統轉移訊息，自動設定用戶效期"""
@@ -1518,6 +1557,11 @@ def health():
 def telegram_webhook():
     """Telegram webhook — GW 客服指令入口"""
     from flask import jsonify
+    # 驗證 Telegram secret token
+    if TG_WEBHOOK_SECRET:
+        token_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if token_header != TG_WEBHOOK_SECRET:
+            return "Forbidden", 403
     data = request.get_json(silent=True)
     if not data or "message" not in data:
         return "OK"
@@ -1604,8 +1648,8 @@ def handle_message(event):
             "開通 REF-XXXX\n"
             "開通 <user_id>\n"
             "→ 升級為正式會員（永久）\n\n"
-            "延長 <user_id或REF碼> <天數>\n"
-            "→ 延長使用期限\n\n"
+            "延長 <user_id或REF碼> <天數或小時>\n"
+            "→ 例如：延長 REF-XXXX 7天 / 3h\n\n"
             "管理員指令\n"
             "→ 顯示本列表\n\n"
             "維護開 / 維護關\n"
@@ -1674,7 +1718,7 @@ def handle_message(event):
         if new_plat == "DG":
             try:
                 dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
-            except:
+            except Exception:
                 dg_count = 0
             reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
         reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/空投/仙人指路 將使用 MT 數據"); return
@@ -1688,7 +1732,7 @@ def handle_message(event):
             airdrop.pop(user_id, None)
         try:
             dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
-        except:
+        except Exception:
             dg_count = 0
         reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
     if text in ("切換MT", "切換mt", "切換Mt"):
@@ -1722,13 +1766,19 @@ def handle_message(event):
     if text == "確定" and user_id in _pending_extend:
         cmd_agent_confirm(user_id, token); return
 
-    # 二段式跟隨（捕捉用戶回覆的桌號）
+    # 二段式跟隨（捕捉用戶回覆的桌號，但如果是其他指令則直接執行）
     if user_id in _pending_follow:
         pf = _pending_follow.get(user_id, {})
         if time.time() < pf.get("expire_ts", 0):
-            _pending_follow.pop(user_id, None)
-            cmd_follow(user_id, token, "跟隨" + text, member)
-            return
+            # 檢查是否為其他有效指令，如果是就取消等待、直接走正常流程
+            _is_cmd = any(text.startswith(k) for k in ("空投","開始空投","停止","結束","stop")) or \
+                      "仙人指路" in text or \
+                      text in ("介紹","說明","指令","help","切換","切換平台","繼續","綁定帳號","確認儲值","審核狀態",
+                               "功能介紹","EV介紹","算牌介紹","我的推薦碼","推薦碼","聊天室")
+            if not _is_cmd:
+                _pending_follow.pop(user_id, None)
+                cmd_follow(user_id, token, "跟隨" + text, member)
+                return
         _pending_follow.pop(user_id, None)
 
     # 二段式 GW 帳號綁定（捕捉用戶回覆）
@@ -1913,11 +1963,18 @@ def poll_loop():
         # 數據新鮮度監控
         _check_data_freshness(latest_hands)
 
-        # 試用到期警告：每 60 秒檢查一次
+        # 試用到期警告 + 記憶體清理：每 60 秒
         now_ts = time.time()
         if now_ts - _last_trial_check >= 60:
             _last_trial_check = now_ts
             _poll_trial_warnings()
+            # 清理過期的記憶體狀態
+            for d in (_cooldown, _pending_extend, _pending_bind, _pending_follow):
+                stale = [k for k, v in d.items()
+                         if isinstance(v, (int, float)) and now_ts - v > 300
+                         or isinstance(v, dict) and now_ts > v.get("expire_ts", now_ts + 1)]
+                for k in stale:
+                    d.pop(k, None)
 
 def _poll_following(latest_hands: dict):
     _test_mode = is_test_mode()
@@ -1940,7 +1997,6 @@ def _poll_following(latest_hands: dict):
                         following.pop(user_id, None)
                 print(f"[Follow] {tid} 查無資料", flush=True); continue
             cur_shoe, cur_hand = row["shoe"], row["hand_num"]
-            print(f"[Follow] {tid} shoe={cur_shoe} hand={cur_hand} last={last_shoe}/{last_hand}", flush=True)
 
             if last_shoe is not None and cur_shoe != last_shoe:
                 push_text(user_id, f"🔄 第{tnum(tid)}廳 換靴，跟隨已停止")
@@ -2005,7 +2061,7 @@ def _poll_airdrop(latest_hands: dict):
         uids = list(users.keys())
         mr = sb().table("members").select("user_id,game").in_("user_id", uids).execute()
         _user_plats = {m["user_id"]: (m.get("game") or "MT") for m in (mr.data or [])}
-    except:
+    except Exception:
         pass
     for user_id, state in users.items():
         # 測試模式：跳過非管理員
@@ -2042,7 +2098,8 @@ def _poll_airdrop(latest_hands: dict):
                     dealer = row.get("dealer") or ""
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
                     next_hand = cur_hand + 1
-                    lines = [f"🪂 +EV空投 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
+                    air_plat = row.get("platform", "MT")
+                    lines = [f"🪂 +EV空投 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
                         lines.append(f"{label}EV：{val:+.4f} ✅")
                     push_text(user_id, "\n".join(lines))
@@ -2054,7 +2111,9 @@ def _poll_trial_warnings():
     warn_threshold = now + timedelta(minutes=WARN_MINUTES)
     try:
         r = (sb().table("members").select("user_id,expire_at,referral_code")
-               .eq("is_member", False).eq("warned_15min", False).execute())
+               .eq("is_member", False).eq("warned_15min", False)
+               .gte("expire_at", now.isoformat()).lte("expire_at", warn_threshold.isoformat())
+               .execute())
         for m in (r.data or []):
             exp = m.get("expire_at")
             if not exp: continue
