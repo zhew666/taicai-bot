@@ -634,6 +634,9 @@ def get_member_type(user_id: str, member: dict) -> str:
             return "✅ 正式帳號"
         if remaining.total_seconds() > 0:
             return "⏳ 試用會員"
+        return "⏰ 試用已結束"
+    if not member.get("trial_start"):
+        return "🆕 尚未啟動試用"
     return "⏰ 試用已結束"
 
 def get_expire_str(member: dict) -> str:
@@ -642,6 +645,8 @@ def get_expire_str(member: dict) -> str:
         return "永久使用"
     exp = member.get("expire_at", "")
     if not exp:
+        if not member.get("trial_start"):
+            return "輸入「仙人指路」開始試用"
         return "已結束"
     exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
     exp_str = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
