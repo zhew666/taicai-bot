@@ -26,14 +26,17 @@ def generate_session_token() -> str:
 
 SESSION_DAYS = 7
 
-def create_session(agent_id: str) -> str:
+def create_session(agent_id: str, tenant_id: str = "") -> str:
     token = generate_session_token()
     expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
-    sb().table("agent_sessions").insert({
+    data = {
         "agent_id": agent_id,
         "token": token,
         "expires_at": expires.isoformat(),
-    }).execute()
+    }
+    if tenant_id:
+        data["tenant_id"] = tenant_id
+    sb().table("agent_sessions").insert(data).execute()
     return token
 
 def get_session(token: str):

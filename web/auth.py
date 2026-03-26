@@ -22,7 +22,7 @@ def init_app(bp):
                 elif not check_password(password, agent["password_hash"]):
                     error = "密碼錯誤"
                 else:
-                    token = create_session(agent["agent_id"])
+                    token = create_session(agent["agent_id"], agent.get("tenant_id", ""))
                     resp = make_response(redirect(url_for("dashboard.index")))
                     resp.set_cookie(COOKIE_NAME, token, max_age=7*86400, httponly=True, samesite="Lax", secure=True)
                     return resp

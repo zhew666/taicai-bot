@@ -61,11 +61,12 @@ def init_app(bp):
 
         sb().table("members").update({
             "expire_at": new_exp.isoformat(),
-        }).eq("user_id", target["user_id"]).execute()
+        }).eq("user_id", target["user_id"]).eq("tenant_id", g.agent["tenant_id"]).execute()
 
         # Log action
         sb().table("agent_actions_log").insert({
             "agent_id": g.agent["agent_id"],
+            "tenant_id": g.agent["tenant_id"],
             "action": "extend",
             "target_user_id": target["user_id"],
             "details": {"days": days, "new_expire": new_exp.isoformat(), "ref_code": ref_upper},
@@ -99,10 +100,11 @@ def init_app(bp):
 
         sb().table("members").update({
             "expire_at": new_exp.isoformat(),
-        }).eq("user_id", target["user_id"]).execute()
+        }).eq("user_id", target["user_id"]).eq("tenant_id", g.agent["tenant_id"]).execute()
 
         sb().table("agent_actions_log").insert({
             "agent_id": g.agent["agent_id"],
+            "tenant_id": g.agent["tenant_id"],
             "action": "set_expire",
             "target_user_id": target["user_id"],
             "details": {"new_expire": new_exp.isoformat(), "ref_code": ref_upper},
@@ -128,10 +130,11 @@ def init_app(bp):
         sb().table("members").update({
             "is_member": True,
             "expire_at": None,
-        }).eq("user_id", target["user_id"]).execute()
+        }).eq("user_id", target["user_id"]).eq("tenant_id", g.agent["tenant_id"]).execute()
 
         sb().table("agent_actions_log").insert({
             "agent_id": g.agent["agent_id"],
+            "tenant_id": g.agent["tenant_id"],
             "action": "activate",
             "target_user_id": target["user_id"],
             "details": {"ref_code": ref_upper},
