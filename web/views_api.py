@@ -41,11 +41,12 @@ def init_app(bp):
             return jsonify({"error": "找不到該會員"}), 404
         target = r.data[0]
 
-        # Check target is in agent's downline
-        descendants = models.get_all_descendants(g.agent)
-        allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
-        if target.get("referred_by") not in allowed_ids:
-            return jsonify({"error": "該會員不在你的下線中"}), 403
+        # Check permission (admin skip)
+        if not g.agent.get("is_admin"):
+            descendants = models.get_all_descendants(g.agent)
+            allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
+            if target.get("referred_by") not in allowed_ids:
+                return jsonify({"error": "該會員不在你的下線中"}), 403
 
         # Extend
         now = datetime.now(timezone.utc)
@@ -93,10 +94,11 @@ def init_app(bp):
             return jsonify({"error": "找不到該會員"}), 404
         target = r.data[0]
 
-        descendants = models.get_all_descendants(g.agent)
-        allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
-        if target.get("referred_by") not in allowed_ids:
-            return jsonify({"error": "該會員不在你的下線中"}), 403
+        if not g.agent.get("is_admin"):
+            descendants = models.get_all_descendants(g.agent)
+            allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
+            if target.get("referred_by") not in allowed_ids:
+                return jsonify({"error": "該會員不在你的下線中"}), 403
 
         sb().table("members").update({
             "expire_at": new_exp.isoformat(),
@@ -121,11 +123,12 @@ def init_app(bp):
             return jsonify({"error": "找不到該會員"}), 404
         target = r.data[0]
 
-        # Check permission
-        descendants = models.get_all_descendants(g.agent)
-        allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
-        if target.get("referred_by") not in allowed_ids:
-            return jsonify({"error": "該會員不在你的下線中"}), 403
+        # Check permission (admin skip)
+        if not g.agent.get("is_admin"):
+            descendants = models.get_all_descendants(g.agent)
+            allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
+            if target.get("referred_by") not in allowed_ids:
+                return jsonify({"error": "該會員不在你的下線中"}), 403
 
         sb().table("members").update({
             "is_member": True,
@@ -316,10 +319,11 @@ def init_app(bp):
             return jsonify({"error": "找不到該會員"}), 404
         target = r.data[0]
 
-        descendants = models.get_all_descendants(g.agent)
-        allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
-        if target.get("referred_by") not in allowed_ids:
-            return jsonify({"error": "該會員不在你的下線中"}), 403
+        if not g.agent.get("is_admin"):
+            descendants = models.get_all_descendants(g.agent)
+            allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
+            if target.get("referred_by") not in allowed_ids:
+                return jsonify({"error": "該會員不在你的下線中"}), 403
 
         now = datetime.now(timezone.utc)
         new_exp = now + timedelta(hours=hours)

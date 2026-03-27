@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>百家之眼 — 自動化註冊開通流程</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f0f1a;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+  h1 { text-align: center; font-size: 28px; color: #fff; margin-bottom: 8px; }
+  .subtitle { text-align: center; color: #888; font-size: 14px; margin-bottom: 48px; }
+  .section-title {
+    text-align: center; font-size: 22px; color: #fff; margin: 60px 0 8px;
+    padding-top: 40px; border-top: 1px solid #ffffff10;
+  }
+  .section-sub { text-align: center; color: #666; font-size: 13px; margin-bottom: 36px; }
+  .flow-container { max-width: 900px; margin: 0 auto; position: relative; }
+  .flow-container::before {
+    content: ''; position: absolute; left: 50%; top: 0; bottom: 0;
+    width: 3px; transform: translateX(-50%); border-radius: 2px;
+  }
+  .flow-a::before { background: linear-gradient(to bottom, #6b21a8, #3b82f6, #f59e0b, #3b82f6, #f59e0b, #10b981); }
+  .flow-b::before { background: linear-gradient(to bottom, #f59e0b, #3b82f6, #f59e0b, #10b981); }
+
+  .step { display: flex; align-items: flex-start; margin-bottom: 20px; position: relative; }
+  .step:last-child { margin-bottom: 0; }
+  .step-left, .step-right { width: 45%; padding: 20px; border-radius: 16px; position: relative; }
+  .step-left { margin-right: auto; text-align: right; }
+  .step-right { margin-left: auto; text-align: left; }
+  .step::after {
+    content: ''; position: absolute; left: 50%; top: 28px;
+    width: 18px; height: 18px; border-radius: 50%;
+    transform: translateX(-50%); z-index: 2; border: 3px solid #0f0f1a;
+  }
+
+  .role {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    padding: 3px 10px; border-radius: 20px; margin-bottom: 8px; letter-spacing: 0.5px;
+  }
+  .role-user { background: #1e3a5f; color: #60a5fa; }
+  .role-bot { background: #1a3a2a; color: #34d399; }
+  .role-gw { background: #3a2a1a; color: #fbbf24; }
+  .role-system { background: #2a1a3a; color: #a78bfa; }
+  .role-tg { background: #1a2a3a; color: #38bdf8; }
+
+  .step-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; color: #fff; }
+  .step-desc { font-size: 14px; color: #aaa; line-height: 1.6; }
+  .step-desc code {
+    background: #1a1a2e; color: #f59e0b; padding: 2px 8px;
+    border-radius: 4px; font-size: 13px; font-family: 'Courier New', monospace;
+  }
+
+  .step-purple .step-left, .step-purple .step-right { background: #1a1030; border: 1px solid #6b21a855; }
+  .step-purple::after { background: #6b21a8; }
+  .step-blue .step-left, .step-blue .step-right { background: #0f1a30; border: 1px solid #3b82f655; }
+  .step-blue::after { background: #3b82f6; }
+  .step-green .step-left, .step-green .step-right { background: #0f2018; border: 1px solid #10b98155; }
+  .step-green::after { background: #10b981; }
+  .step-yellow .step-left, .step-yellow .step-right { background: #1a1808; border: 1px solid #f59e0b55; }
+  .step-yellow::after { background: #f59e0b; }
+  .step-red .step-left, .step-red .step-right { background: #1a0f0f; border: 1px solid #ef444455; }
+  .step-red::after { background: #ef4444; }
+
+  .arrow-label { text-align: center; font-size: 12px; color: #666; margin: -8px 0 12px 0; position: relative; z-index: 1; }
+  .arrow-label span { background: #0f0f1a; padding: 0 12px; }
+
+  .tier-table { width: 100%; margin-top: 12px; border-collapse: collapse; }
+  .tier-table td { padding: 6px 12px; font-size: 13px; border-bottom: 1px solid #ffffff10; }
+  .tier-table td:first-child { color: #f59e0b; font-weight: 600; }
+  .tier-table td:last-child { color: #aaa; }
+
+  .branch { display: flex; gap: 16px; margin-top: 28px; margin-bottom: 20px; position: relative; z-index: 1; }
+  .branch-card { flex: 1; padding: 20px; border-radius: 16px; text-align: center; }
+  .branch-card.pass { background: #0f2018; border: 1px solid #10b98155; }
+  .branch-card.fail { background: #1a0f0f; border: 1px solid #ef444455; }
+  .branch-label { font-size: 12px; font-weight: 600; letter-spacing: 1px; margin-bottom: 8px; }
+  .branch-card.pass .branch-label { color: #10b981; }
+  .branch-card.fail .branch-label { color: #ef4444; }
+  .branch-card .step-title { font-size: 16px; }
+
+  .legend { display: flex; justify-content: center; gap: 24px; margin-top: 48px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #888; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+
+  .msg-bubble {
+    background: #1a1a2e; border-radius: 12px; padding: 12px 16px; margin-top: 10px;
+    font-size: 13px; line-height: 1.6; color: #ccc; text-align: left; border-left: 3px solid #6b21a855;
+  }
+  .msg-bubble.bot-msg { border-left-color: #10b98155; }
+  .msg-bubble.gw-msg { border-left-color: #f59e0b55; }
+  .msg-bubble.tg-msg { border-left-color: #38bdf855; }
+
+  .cmd-grid { display: grid; gap: 12px; }
+  .cmd-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .cmd-grid-2 { grid-template-columns: 1fr 1fr; }
+  .cmd-card {
+    background: #0f0f1a; border-radius: 10px; padding: 14px;
+  }
+  .cmd-card .cmd-name { font-weight: 600; font-size: 14px; }
+  .cmd-card .cmd-desc { color: #888; font-size: 12px; margin-top: 4px; }
+
+  .flow-split {
+    display: flex; gap: 24px; max-width: 900px; margin: 0 auto;
+  }
+  .flow-split > div { flex: 1; }
+</style>
+</head>
+<body>
+
+<h1>百家之眼 — 自動化註冊開通流程</h1>
+<p class="subtitle">用戶從試用到正式會員的完整路徑（v2.0 — 兩段式引導 + 確認儲值）</p>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- FLOW A: 新用戶首次註冊                          -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 class="section-title">Flow A：新用戶首次註冊</h2>
+<p class="section-sub">從加入 LINE Bot → 試用 → 儲值 → 正式會員</p>
+
+<div class="flow-container flow-a">
+
+  <!-- A1: 加入 -->
+  <div class="step step-purple">
+    <div class="step-left">
+      <span class="role role-user">USER</span>
+      <div class="step-title">A1. 加入 LINE Bot</div>
+      <div class="step-desc">
+        用戶加好友，系統自動建立帳號<br>
+        獲得 <strong>1 小時免費試用</strong><br>
+        （首次使用功能才啟動倒數）
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-label"><span>輸入推薦碼 / 活動碼可延長</span></div>
+
+  <!-- A2: 試用 -->
+  <div class="step step-blue">
+    <div class="step-right">
+      <span class="role role-bot">BOT</span>
+      <div class="step-title">A2. 試用期間</div>
+      <div class="step-desc">
+        完整功能開放：仙人指路、空投掃描、跟隨桌台<br><br>
+        活動碼 <code>SETHEYE</code> → +6 小時<br>
+        推薦碼 <code>REF-XXXX</code> → 延長至 6 小時<br>
+        <span style="color:#666">（活動碼、推薦碼各限用一次）</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-label"><span>到期前 15 分鐘 / 試用結束時</span></div>
+
+  <!-- A3: 到期預警（第一段） -->
+  <div class="step step-yellow">
+    <div class="step-left">
+      <span class="role role-bot">BOT 推播</span>
+      <div class="step-title">A3. 到期預警（第一段）</div>
+      <div class="step-desc">只問一句，不塞資訊</div>
+      <div class="msg-bubble bot-msg">
+        <strong>⏰ 試用即將結束</strong><br><br>
+        想繼續使用百家之眼嗎？<br>
+        回覆「繼續」即可了解方案
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-label"><span>用戶回覆「繼續」</span></div>
+
+  <!-- A4: 推送方案（第二段） -->
+  <div class="step step-blue">
+    <div class="step-right">
+      <span class="role role-bot">BOT 回覆</span>
+      <div class="step-title">A4. 儲值方案引導（第二段）</div>
+      <div class="step-desc">有興趣的用戶才會看到</div>
+      <div class="msg-bubble bot-msg">
+        前往金盈匯註冊並儲值點數<br>
+        👉 gw55.GW1688.NET<br><br>
+        💰 點數可直接用來玩金盈匯平台上的遊戲<br>
+        儲值後即可同時開通百家之眼使用權<br><br>
+        💡 儲值 1,000 點 → 3 天<br>
+        💡 儲值 5,000 點 → 7 天<br>
+        💡 儲值 10,000 點 → 31 天<br><br>
+        註冊完成後，輸入「綁定帳號」綁定<br>
+        儲值完成後輸入「確認儲值」
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-label"><span>用戶去 GW 註冊 + 儲值，回來後</span></div>
+
+  <!-- A5: 綁定帳號 -->
+  <div class="step step-blue">
+    <div class="step-left">
+      <span class="role role-user">USER 輸入</span>
+      <div class="step-title">A5. 綁定帳號（二段式）</div>
+      <div class="step-desc">首次綁定金盈匯帳號</div>
+      <div class="msg-bubble">
+        <strong>用戶：</strong>綁定帳號<br>
+        <strong>BOT：</strong>請輸入您在金盈匯的帳號：<br>
+        <span style="color:#666">（2 分鐘內輸入）</span><br><br>
+        <strong>用戶：</strong>abc123<br>
+        <strong>BOT：</strong>✅ 已記錄帳號 abc123，已通知客服審核
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-label"><span>用戶輸入「確認儲值」</span></div>
+
+  <!-- A6: 確認儲值 -->
+  <div class="step step-yellow">
+    <div class="step-right">
+      <span class="role role-user">USER 輸入</span>
+      <div class="step-title">A6. 確認儲值</div>
+      <div class="step-desc">BOT 用已綁定的帳號通知 GW 客服</div>
+      <div class="msg-bubble">
+        <strong>用戶：</strong>確認儲值<br>
+        <strong>BOT：</strong>📋 帳號：abc123<br>
+        已通知客服確認您的最新儲值
+      </div>
+      <div class="msg-bubble tg-msg" style="margin-top:8px;">
+        <strong>→ Telegram 通知 GW 客服：</strong><br>
+        📋 儲值待確認<br>
+        金盈匯帳號：abc123<br>
+        確認請回覆：確認 abc123 5000
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-label"><span>GW 客服核實儲值後回覆</span></div>
+
+</div>
+
+<!-- Branch -->
+<div style="max-width: 900px; margin: 0 auto;">
+  <div class="branch">
+    <div class="branch-card pass">
+      <div class="branch-label">APPROVED</div>
+      <span class="role role-gw">GW 客服回覆</span>
+      <div class="step-title" style="margin-top:8px">A7a. 確認通過</div>
+      <div class="step-desc" style="margin-top:8px">
+        Telegram 回覆 <code>確認 abc123 5000</code>
+      </div>
+      <div class="msg-bubble bot-msg" style="margin-top:12px; text-align:center;">
+        <strong>BOT 自動處理：</strong><br>
+        gw_status → verified<br>
+        使用期限 +7 天<br>
+        記錄到 gw_deposits 表<br><br>
+        <strong>LINE 推播給用戶：</strong><br>
+        🎉 帳號驗證通過！<br>
+        儲值 5,000 點 → 延長 7 天
+      </div>
+    </div>
+    <div class="branch-card fail">
+      <div class="branch-label">REJECTED</div>
+      <span class="role role-gw">GW 客服回覆</span>
+      <div class="step-title" style="margin-top:8px">A7b. 未通過</div>
+      <div class="step-desc" style="margin-top:8px">
+        Telegram 回覆 <code>未通過 abc123</code>
+      </div>
+      <div class="msg-bubble" style="margin-top:12px; text-align:center; border-left-color: #ef444455;">
+        <strong>BOT 自動處理：</strong><br>
+        gw_status → rejected<br><br>
+        <strong>LINE 推播給用戶：</strong><br>
+        ❌ 帳號驗證未通過<br>
+        請確認是否已完成註冊及儲值
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Final A -->
+<div class="flow-container flow-a" style="margin-top: 20px;">
+  <div class="step step-green">
+    <div class="step-left" style="width: 100%; text-align: center; margin: 0 auto;">
+      <span class="role role-system">SYSTEM</span>
+      <div class="step-title">A8. 正式會員</div>
+      <div class="step-desc">
+        用戶成為正式會員，所有功能持續開放<br>
+        到期後走 Flow B 續約
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- FLOW B: 已驗證用戶再次儲值                      -->
+<!-- ═══════════════════════════════════════════════ -->
+<h2 class="section-title">Flow B：已驗證用戶再次儲值延長</h2>
+<p class="section-sub">帳號已綁定，不需重新註冊</p>
+
+<div class="flow-container flow-b">
+
+  <!-- B1: 到期 -->
+  <div class="step step-yellow">
+    <div class="step-left">
+      <span class="role role-bot">BOT 推播</span>
+      <div class="step-title">B1. 到期預警（第一段）</div>
+      <div class="msg-bubble bot-msg">
+        <strong>⏰ 使用期限即將結束</strong><br><br>
+        想繼續使用百家之眼嗎？<br>
+        回覆「繼續」即可了解方案
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-label"><span>用戶回覆「繼續」</span></div>
+
+  <!-- B2: 引導儲值 -->
+  <div class="step step-blue">
+    <div class="step-right">
+      <span class="role role-bot">BOT 回覆</span>
+      <div class="step-title">B2. 儲值引導（第二段）</div>
+      <div class="step-desc">已有帳號，不需重新綁定</div>
+      <div class="msg-bubble bot-msg">
+        前往金盈匯儲值點數<br>
+        👉 gw55.GW1688.NET<br><br>
+        💰 點數可直接用來玩金盈匯平台上的遊戲<br>
+        儲值後即可同時開通百家之眼使用權<br><br>
+        💡 儲值 1,000 點 → 3 天<br>
+        💡 儲值 5,000 點 → 7 天<br>
+        💡 儲值 10,000 點 → 31 天<br><br>
+        儲值完成後回來輸入「確認儲值」
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-label"><span>用戶去 GW 儲值，回來後</span></div>
+
+  <!-- B3: 確認儲值 -->
+  <div class="step step-yellow">
+    <div class="step-left">
+      <span class="role role-user">USER 輸入</span>
+      <div class="step-title">B3. 確認儲值</div>
+      <div class="step-desc">一步到位，不需重新綁定帳號</div>
+      <div class="msg-bubble">
+        <strong>用戶：</strong>確認儲值<br>
+        <strong>BOT：</strong>📋 帳號：abc123<br>
+        已通知客服確認您的最新儲值
+      </div>
+      <div class="msg-bubble tg-msg" style="margin-top:8px;">
+        <strong>→ Telegram 通知 GW 客服：</strong><br>
+        📋 儲值待確認<br>
+        金盈匯帳號：abc123<br>
+        確認請回覆：確認 abc123 5000
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-label"><span>GW 客服核實後回覆</span></div>
+
+  <!-- B4: 延長 -->
+  <div class="step step-green">
+    <div class="step-right" style="width: 100%; text-align: center; margin: 0 auto;">
+      <span class="role role-system">SYSTEM</span>
+      <div class="step-title">B4. 自動延長</div>
+      <div class="step-desc">
+        GW 客服 Telegram 回覆 <code>確認 abc123 5000</code><br>
+        → BOT 自動延長 7 天 + LINE 推播通知用戶<br>
+        → 可無限次重複此流程
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 指令總覽                                        -->
+<!-- ═══════════════════════════════════════════════ -->
+<div style="max-width: 900px; margin: 60px auto 0;">
+  <div style="background: #1a1a2e; border-radius: 16px; padding: 24px; border: 1px solid #ffffff10;">
+    <h3 style="color: #fff; margin-bottom: 16px; text-align: center;">用戶指令</h3>
+    <div class="cmd-grid cmd-grid-2" style="margin-bottom: 12px;">
+      <div class="cmd-card">
+        <div class="cmd-name" style="color: #60a5fa;">繼續</div>
+        <div class="cmd-desc">到期後了解儲值方案</div>
+      </div>
+      <div class="cmd-card">
+        <div class="cmd-name" style="color: #60a5fa;">確認儲值</div>
+        <div class="cmd-desc">儲值完成後通知客服確認</div>
+      </div>
+    </div>
+    <div class="cmd-grid cmd-grid-3">
+      <div class="cmd-card">
+        <div class="cmd-name" style="color: #60a5fa;">綁定帳號</div>
+        <div class="cmd-desc">首次綁定金盈匯帳號</div>
+      </div>
+      <div class="cmd-card">
+        <div class="cmd-name" style="color: #60a5fa;">更換帳號</div>
+        <div class="cmd-desc">重新綁定（已驗證不可換）</div>
+      </div>
+      <div class="cmd-card">
+        <div class="cmd-name" style="color: #60a5fa;">審核狀態</div>
+        <div class="cmd-desc">查詢帳號審核進度</div>
+      </div>
+    </div>
+
+    <h3 style="color: #fff; margin: 24px 0 16px; text-align: center;">GW 客服指令（Telegram）</h3>
+    <div class="cmd-grid cmd-grid-2">
+      <div class="cmd-card">
+        <div class="cmd-name" style="color: #fbbf24;">確認 &lt;帳號&gt; &lt;金額&gt;</div>
+        <div class="cmd-desc">確認儲值，自動延長用戶期限</div>
+      </div>
+      <div class="cmd-card">
+        <div class="cmd-name" style="color: #ef4444;">未通過 &lt;帳號&gt;</div>
+        <div class="cmd-desc">未通過，通知用戶重新確認</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#6b21a8"></div> 用戶加入</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div> LINE Bot 互動</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#38bdf8"></div> Telegram 通知</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div> 金盈匯相關</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div> 完成開通</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div> 未通過</div>
+</div>
+
+<p style="text-align:center; color:#444; font-size:12px; margin-top:40px;">百家之眼 v2.0 — 2026-03-21（兩段式引導 + 確認儲值 + Telegram 對接）</p>
+
+</body>
+</html>
