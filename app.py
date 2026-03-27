@@ -1929,7 +1929,7 @@ def handle_message(event):
     if text in ("審核狀態", "审核状态", "審核"):
         cmd_gw_status(user_id, token, member); return
     if text in ("聊天室", "群組", "社群"):
-        reply_text(token, "💬 加入百家勝率天秤聊天室\n\n👉 https://line.me/ti/g/ddjjpjznQL"); return
+        reply_text(token, "💬 加入百家勝率天秤聊天室\n\n👉 https://line.me/ti/g/bUy5n3r9u8"); return
     if text in ("說明", "说明", "help", "指令", "Help", "HELP"):
         plat_now = get_user_platform(member)
         plat_info = "DG 14 桌" if plat_now == "DG" else "MT 13 廳"
