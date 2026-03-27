@@ -61,6 +61,9 @@
                 {% if m._status != 'permanent' %}
                 <button class="outline btn-sm" onclick="extendMember('{{ m.referral_code }}')">延長</button>
                 <button class="outline btn-sm secondary" onclick="setExpire('{{ m.referral_code }}', '{{ m.expire_at[:16] if m.expire_at else '' }}')">修改</button>
+                {% if is_admin %}
+                <button class="outline btn-sm contrast" onclick="activateMember('{{ m.referral_code }}')">開通</button>
+                {% endif %}
                 {% endif %}
             </td>
         </tr>
@@ -144,6 +147,19 @@ function submitExtend() {
         } else {
             alert(data.error || '操作失敗');
         }
+    })
+    .catch(() => alert('網路錯誤'));
+}
+function activateMember(ref) {
+    if (!confirm(`確定要開通 ${ref} 為永久正式會員？`)) return;
+    fetch(`/dashboard/api/members/${ref}/activate`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) { alert('已開通為永久正式會員'); location.reload(); }
+        else { alert(data.error || '操作失敗'); }
     })
     .catch(() => alert('網路錯誤'));
 }
