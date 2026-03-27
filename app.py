@@ -612,7 +612,7 @@ def cmd_my_code(user_id, token, member):
     elif member.get("is_member"):
         exp_str = "永久"
     else:
-        exp_str = "尚未啟動"
+        exp_str = f"尚未啟動（試用 {TRIAL_HOURS} 小時）"
     reply_text(token,
         f"📋 你的推薦碼：{code}\n"
         f"使用期限：{exp_str}\n\n"
