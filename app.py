@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-百家之眼 LINE Bot Server
-功能：跟隨系統 / 空投系統 / 仙人指路 / 會員系統（試用+推薦碼）
+百家勝率天秤 LINE Bot Server
+功能：跟隨系統 / 全局系統 / 最佳推薦 / 會員系統（試用+推薦碼）
 """
 import os, threading, time, random, string, re
 from datetime import datetime, timezone, timedelta
@@ -34,7 +34,7 @@ def sb():
 
 import httpx as _httpx
 
-REGISTER_URL    = os.environ.get("REGISTER_URL", "gw55.GW1688.NET")
+REGISTER_URL    = os.environ.get("REGISTER_URL", "gw6688.gw1688.NET")
 TENANT_ID       = os.environ.get("TENANT_ID", "")
 ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
 ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
@@ -404,7 +404,7 @@ def expired_reply(token: str, member: dict):
     code = member.get("referral_code", "N/A")
     reply_text(token,
         f"⏰ 試用已結束\n\n"
-        f"想繼續使用百家之眼嗎？\n"
+        f"想繼續使用百家勝率天秤嗎？\n"
         f"回覆「繼續」即可了解方案\n\n"
         f"━━━━━━━━━━━━━━\n"
         f"📋 你的推薦碼：{code}\n"
@@ -416,18 +416,18 @@ def cmd_continue_info(user_id, token, member):
     if has_account:
         reply_text(token,
             f"前往金盈匯儲值點數\n"
-            f"👉 gw55.GW1688.NET\n\n"
+            f"👉 gw6688.gw1688.NET\n\n"
             f"💰 點數可直接用來玩金盈匯平台上的遊戲\n"
-            f"儲值後即可同時開通百家之眼使用權\n\n"
+            f"儲值後即可同時開通百家勝率天秤使用權\n\n"
                         f"💡 儲值 5,000 點 → 7 天\n"
             f"💡 儲值 10,000 點 → 31 天\n\n"
             f"儲值完成後回來輸入「確認儲值」")
     else:
         reply_text(token,
             f"前往金盈匯註冊並儲值點數\n"
-            f"👉 gw55.GW1688.NET\n\n"
+            f"👉 gw6688.gw1688.NET\n\n"
             f"💰 點數可直接用來玩金盈匯平台上的遊戲\n"
-            f"儲值後即可同時開通百家之眼使用權\n\n"
+            f"儲值後即可同時開通百家勝率天秤使用權\n\n"
                         f"💡 儲值 5,000 點 → 7 天\n"
             f"💡 儲值 10,000 點 → 31 天\n\n"
             f"註冊完成後，輸入「綁定帳號」綁定\n"
@@ -512,7 +512,7 @@ def cmd_airdrop(user_id, token, text, member):
     with airdrop_lock:
         if user_id in airdrop:
             airdrop.pop(user_id)
-            reply_text(token, "🪂 空投監控已關閉"); return
+            reply_text(token, "🎯 全局監控已關閉"); return
 
     import re
     m = re.search(r'(\d+)', text)
@@ -535,12 +535,12 @@ def cmd_airdrop(user_id, token, text, member):
     pos = sum(1 for r in real if any(r.get(f) and r[f] > 0 for f in EV_FIELDS))
 
     lines = [
-        "🪂 空投監控已開啟",
+        "🎯 全局監控已開啟",
         "━━━━━━━━━━━━━━",
         "",
         f"監控廳數：{active} 廳",
         f"目前正EV：{pos} 廳",
-        f"空投結束時間：{exp_tw}",
+        f"全局結束時間：{exp_tw}",
         "",
         "偵測到正EV時立即推播通知",
     ]
@@ -551,7 +551,7 @@ def cmd_stop(user_id, token):
     with follow_lock:
         if following.pop(user_id, None): removed.append("跟隨")
     with airdrop_lock:
-        if airdrop.pop(user_id, None): removed.append("空投")
+        if airdrop.pop(user_id, None): removed.append("全局")
     reply_text(token, f"已停止：{'、'.join(removed)}" if removed else "目前沒有進行中的監控")
 
 def cmd_guide(user_id, token, member):
@@ -592,14 +592,14 @@ def cmd_guide(user_id, token, member):
         rec = None
     plat_tag = f"[{plat}] "
     rec_str = f"  {rec}" if rec else ""
-    chat_line = "\n\n💬 期望值研究室開張 → https://line.me/R/ti/g/rHSmWrs5Gj"
+    chat_line = ""
     if best_val > 0:
-        msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
+        msg = (f"🔍 最佳推薦 {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局 {label} EV={best_val:+.4f} ✅\n"
                f"正EV機會，可考慮出手"
                f"{chat_line}")
     else:
-        msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
+        msg = (f"🔍 最佳推薦 {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局\n"
                f"目前最佳選項：{label} EV={best_val:+.4f}\n"
                f"靴牌進行中，持續監控"
@@ -649,7 +649,7 @@ def get_expire_str(member: dict) -> str:
     exp = member.get("expire_at", "")
     if not exp:
         if not member.get("trial_start"):
-            return "輸入「仙人指路」開始試用"
+            return "輸入「最佳推薦」開始試用"
         return "已結束"
     exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
     exp_str = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
@@ -1191,7 +1191,7 @@ def cmd_gw_status(user_id, token, member):
     if not account:
         reply_text(token,
             "尚未綁定金盈匯帳號\n\n"
-            "請先前往註冊：gw55.GW1688.NET\n"
+            "請先前往註冊：gw6688.gw1688.NET\n"
             "註冊後輸入「綁定帳號」綁定")
         return
     status = member.get("gw_status", "none")
@@ -1251,7 +1251,7 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
             f"儲值點數：{amount:,}\n"
             f"使用期限延長 {days} 天\n"
             f"新到期時間：{new_exp_tw}\n\n"
-            f"感謝使用百家之眼！")
+            f"感謝使用百家勝率天秤！")
     except Exception:
         pass
     return f"✅ 已確認 {account}\n儲值 {amount} 點 → 延長 {days} 天\n新到期：{new_exp_tw}"
@@ -1272,7 +1272,7 @@ def _do_gw_reject(text: str) -> str:
             "❌ 帳號驗證未通過\n"
             "━━━━━━━━━━━━━━\n"
             "請確認是否已完成註冊及儲值\n\n"
-            "註冊網址：gw55.GW1688.NET\n"
+            "註冊網址：gw6688.gw1688.NET\n"
             "完成後請重新輸入「確認儲值」")
     except Exception:
         pass
@@ -1293,7 +1293,7 @@ def _do_gw_not_deposited(text: str) -> str:
             "📋 帳號已確認，但尚未儲值\n"
             "━━━━━━━━━━━━━━\n"
             "請先前往金盈匯儲值點數\n"
-            "👉 gw55.GW1688.NET\n\n"
+            "👉 gw6688.gw1688.NET\n\n"
             "💡 儲值 5,000 點 → 7 天\n"
             "💡 儲值 10,000 點 → 31 天\n\n"
             "儲值完成後回來輸入「確認儲值」")
@@ -1339,7 +1339,7 @@ def _do_gw_ask_cs(text: str) -> str:
             "━━━━━━━━━━━━━━\n"
             "您的帳號需要由金盈匯客服協助處理\n"
             "請直接聯繫金盈匯線上客服\n\n"
-            "👉 gw55.GW1688.NET")
+            "👉 gw6688.gw1688.NET")
     except Exception:
         pass
     return f"✅ 已通知 {account} 用戶聯繫金盈匯客服"
@@ -1553,17 +1553,17 @@ def cmd_ev_intro(user_id, token):
         "百家樂通常莊閒 EV 都是負的，\n"
         "但隨著牌靴消耗，偶爾會出現\n"
         "EV 翻正的瞬間 — 這就是出手時機。\n\n"
-        "百家之眼替你即時計算每張桌的 EV，\n"
+        "百家勝率天秤替你即時計算每張桌的 EV，\n"
         "在正EV出現時第一時間通知你。\n\n"
         "━━━━━━━━━━━━━━\n\n"
-        "如果還是難以理解，直接輸入「仙人指路」\n"
+        "如果還是難以理解，直接輸入「最佳推薦」\n"
         "系統會從 MT + DG 近 30 張桌中，\n"
         "即時選出當下最佳的投注選項給你。\n"
         "這是目前全網最強的百家樂輔助功能。")
 
 def cmd_card_intro(user_id, token):
     reply_text(token,
-        "🃏 百家之眼怎麼算？\n"
+        "🃏 百家勝率天秤怎麼算？\n"
         "━━━━━━━━━━━━━━\n\n"
         "百家樂用 8 副牌（416 張），\n"
         "每發一局牌，剩餘牌組就會改變。\n\n"
@@ -1577,7 +1577,7 @@ def cmd_card_intro(user_id, token):
         "差別是我們用電腦完整計算，\n"
         "不是靠人腦估算。\n\n"
         "━━━━━━━━━━━━━━\n\n"
-        "如果還是難以理解，直接輸入「仙人指路」\n"
+        "如果還是難以理解，直接輸入「最佳推薦」\n"
         "系統會從 MT + DG 近 30 張桌中，\n"
         "即時選出當下最佳的投注選項給你。\n"
         "這是目前全網最強的百家樂輔助功能。")
@@ -1585,18 +1585,18 @@ def cmd_card_intro(user_id, token):
 def cmd_feature_intro(user_id, token):
     # 第一則：功能與使用方式
     reply_text(token,
-        "百家之眼 ── 功能介紹\n"
+        "百家勝率天秤 ── 功能介紹\n"
         "━━━━━━━━━━━━━━\n\n"
         "即時監控兩大場館百家樂：\n"
         "  MT 13 廳 ＋ DG 14 桌\n"
         "8 副牌完整追蹤，計算 6 種注區 EV：\n"
         "莊 / 閒 / 和 / 超級六 / 閒對 / 莊對\n\n"
-        "▸ 仙人指路\n"
+        "▸ 最佳推薦\n"
         "  一鍵掃描全桌，推薦🔴莊或🔵閒。\n"
-        "  → 點選單「仙人指路」\n\n"
-        "▸ 空投掃描\n"
+        "  → 點選單「最佳推薦」\n\n"
+        "▸ 全局監控\n"
         "  開啟後，正 EV 出現立刻推播通知你。\n"
-        "  → 點選單「空投掃描」\n\n"
+        "  → 點選單「全局監控」\n\n"
         "▸ 跟隨桌台\n"
         "  鎖定單桌，即時推送牌面、EV 與結果。\n"
         "  → MT：跟隨 3廳 / DG：跟隨 01\n\n"
@@ -1606,15 +1606,15 @@ def cmd_feature_intro(user_id, token):
         "  → 輸入「EV介紹」或「算牌介紹」\n\n"
         "━━━━━━━━━━━━━━\n"
         "💡 不知道 EV 是什麼也沒關係，\n"
-        "先試「仙人指路」，看到正 EV 就是出手訊號。")
+        "先試「最佳推薦」，看到正 EV 就是出手訊號。")
     # 第二則：關於我們 + 推薦機制
     push_text(user_id,
-        "關於百家之眼\n"
+        "關於百家勝率天秤\n"
         "━━━━━━━━━━━━━━\n\n"
         "百家樂不是純運氣的遊戲。\n"
         "8 副牌、416 張牌，每發一張牌，\n"
         "剩餘牌組的機率結構就在改變。\n\n"
-        "百家之眼做的事很單純：\n"
+        "百家勝率天秤做的事很單純：\n"
         "同時監控 MT + DG 兩大場館，\n"
         "把數學算好，即時告訴你。\n\n"
         "我們不賣牌路、不帶單、不保證贏，\n"
@@ -1660,14 +1660,14 @@ def telegram_webhook():
     print(f"[TG] chat_id={chat_id}: {text}", flush=True)
     # /start 指令 — 回傳 chat_id 方便設定
     if text == "/start":
-        tg_send(chat_id, f"歡迎使用百家之眼 GW 客服系統\n\n你的 Chat ID：{chat_id}\n\n請將此 ID 提供給管理員完成設定")
+        tg_send(chat_id, f"歡迎使用百家勝率天秤 GW 客服系統\n\n你的 Chat ID：{chat_id}\n\n請將此 ID 提供給管理員完成設定")
         return "OK"
     # 驗證是否為 GW 客服
     if chat_id not in TG_GW_CHAT_IDS:
         tg_send(chat_id, f"⚠️ 無權限\n你的 Chat ID：{chat_id}\n請聯繫管理員開通")
         return "OK"
     # 處理指令
-    CMD_HELP = ("📋 百家之眼 GW 客服指令\n"
+    CMD_HELP = ("📋 百家勝率天秤 GW 客服指令\n"
                 "━━━━━━━━━━━━━━\n\n"
                 "確認 <帳號> <金額>\n→ 儲值確認，自動延長期限\n\n"
                 "未儲值 <帳號>\n→ 帳號存在但尚未儲值\n\n"
@@ -1811,8 +1811,8 @@ def handle_message(event):
                 dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
             except Exception:
                 dg_count = 0
-            reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
-        reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/空投/仙人指路 將使用 MT 數據"); return
+            reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/全局/最佳推薦 將使用 DG 數據"); return
+        reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/全局/最佳推薦 將使用 MT 數據"); return
     if text in ("切換DG", "切換dg", "切換Dg"):
         if not is_platform_enabled("DG") and not is_admin(user_id):
             reply_text(token, "🔒 DG 場館目前未開放"); return
@@ -1825,7 +1825,7 @@ def handle_message(event):
             dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
         except Exception:
             dg_count = 0
-        reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
+        reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/全局/最佳推薦 將使用 DG 數據"); return
     if text in ("切換MT", "切換mt", "切換Mt"):
         if not is_platform_enabled("MT") and not is_admin(user_id):
             reply_text(token, "🔒 MT 場館目前未開放"); return
@@ -1834,7 +1834,7 @@ def handle_message(event):
             following.pop(user_id, None)
         with airdrop_lock:
             airdrop.pop(user_id, None)
-        reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/空投/仙人指路 將使用 MT 數據"); return
+        reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/全局/最佳推薦 將使用 MT 數據"); return
     if text.startswith("查詢") or text.startswith("查询"):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
@@ -1870,8 +1870,8 @@ def handle_message(event):
         pf = _pending_follow.get(user_id, {})
         if time.time() < pf.get("expire_ts", 0):
             # 檢查是否為其他有效指令，如果是就取消等待、直接走正常流程
-            _is_cmd = any(text.startswith(k) for k in ("空投","開始空投","停止","結束","stop")) or \
-                      "仙人指路" in text or \
+            _is_cmd = any(text.startswith(k) for k in ("全局","開始全局","停止","結束","stop")) or \
+                      "最佳推薦" in text or \
                       text in ("介紹","說明","指令","help","切換","切換平台","繼續","綁定帳號","確認儲值","審核狀態",
                                "功能介紹","EV介紹","算牌介紹","我的推薦碼","推薦碼","聊天室")
             if not _is_cmd:
@@ -1929,25 +1929,25 @@ def handle_message(event):
     if text in ("審核狀態", "审核状态", "審核"):
         cmd_gw_status(user_id, token, member); return
     if text in ("聊天室", "群組", "社群"):
-        reply_text(token, "💬 加入百家之眼聊天室\n\n👉 https://line.me/ti/g/ddjjpjznQL"); return
+        reply_text(token, "💬 加入百家勝率天秤聊天室\n\n👉 https://line.me/ti/g/ddjjpjznQL"); return
     if text in ("說明", "说明", "help", "指令", "Help", "HELP"):
         plat_now = get_user_platform(member)
         plat_info = "DG 14 桌" if plat_now == "DG" else "MT 13 廳"
         follow_hint = "跟隨 01~07" if plat_now == "DG" else "跟隨 X廳（1~13）"
         reply_text(token,
-            f"🃏 百家之眼 指令說明\n"
+            f"🃏 百家勝率天秤 指令說明\n"
             f"📡 目前場館：{plat_info}（輸入「切換」可切換）\n"
             "━━━━━━━━━━━━━━\n\n"
-            "🪂 空投 X\n"
+            "🎯 全局 X\n"
             "→ 開啟全桌掃描 X 小時（1~3），\n"
             "　任一桌出現正EV立刻通知\n\n"
             f"👁 {follow_hint}\n"
             "→ 鎖定某張桌即時跟蹤，\n"
             "　每局推送牌面+EV\n\n"
-            "🧙 仙人指路\n"
+            "🔍 最佳推薦\n"
             "→ 一鍵查詢最高EV桌台\n\n"
             "🛑 停止\n"
-            "→ 停止跟隨/空投\n\n"
+            "→ 停止跟隨/全局\n\n"
             "🔄 切換\n"
             "→ 切換 MT / DG 場館\n\n"
             "━━━━━━━━━━━━━━\n\n"
@@ -1970,11 +1970,11 @@ def handle_message(event):
     if any(text.startswith(k) for k in ("跟隨","跟随","追隨","追蹤","監控")):
         body = text[2:].strip()
         cmd_follow(user_id, token, "跟隨" + body, member)
-    elif text.startswith("空投") or text.startswith("開始空投"):
+    elif text.startswith("全局") or text.startswith("開始全局"):
         cmd_airdrop(user_id, token, text, member)
     elif text in ("停止", "結束", "stop", "Stop", "STOP"):
         cmd_stop(user_id, token)
-    elif "仙人指路" in text:
+    elif "最佳推薦" in text:
         cmd_guide(user_id, token, member)
     elif text.startswith("好友推薦碼") or text.startswith("好友推荐码"):
         cmd_enter_code(user_id, token, text, member)
@@ -2157,9 +2157,9 @@ def _poll_airdrop(latest_hands: dict):
             if now > state["expire_at"]:
                 cnt = state.get("push_count", 0)
                 if cnt > 0:
-                    end_msg = f"🪂 空投監控已結束\n本次共捕獲 {cnt} 次 +EV 空投\n\n輸入「空投」可再次啟動"
+                    end_msg = f"🎯 全局監控已結束\n本次共捕獲 {cnt} 次 +EV 監控\n\n輸入「全局」可再次啟動"
                 else:
-                    end_msg = "🪂 空投監控已結束\n本次監控期間未偵測到 +EV\n\n輸入「空投」可再次啟動"
+                    end_msg = "🎯 全局監控已結束\n本次監控期間未偵測到 +EV\n\n輸入「全局」可再次啟動"
                 push_text(user_id, end_msg)
                 with airdrop_lock:
                     airdrop.pop(user_id, None)
@@ -2185,10 +2185,10 @@ def _poll_airdrop(latest_hands: dict):
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
                     next_hand = cur_hand + 1
                     air_plat = row.get("platform", "MT")
-                    lines = [f"🪂 +EV空投 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
+                    lines = [f"🎯 +EV監控 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
                         lines.append(f"{label}EV：{val:+.4f} ✅")
-                    lines.append("\n💬 期望值研究室開張 → https://line.me/R/ti/g/rHSmWrs5Gj")
+                    pass  # 聊天室推廣：商戶自行設定
                     push_text(user_id, "\n".join(lines))
         except Exception as e:
             print(f"[Airdrop Error] {user_id}: {e}", flush=True)
@@ -2211,7 +2211,7 @@ def _poll_trial_warnings():
                 try:
                     push_text(m["user_id"],
                         f"⏰ 試用即將結束（剩餘 15 分鐘）\n\n"
-                        f"想繼續使用百家之眼嗎？\n"
+                        f"想繼續使用百家勝率天秤嗎？\n"
                         f"回覆「繼續」即可了解方案\n\n"
                         f"📋 你的推薦碼：{code}\n"
                         f"分享給好友也能獲得額外時間")
