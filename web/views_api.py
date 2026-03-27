@@ -300,3 +300,111 @@ def init_app(bp):
 
         sb().table("agents").update(updates).eq("agent_id", agent_id).eq("tenant_id", g.agent["tenant_id"]).execute()
         return jsonify({"ok": True})
+
+    # ── 試用重置 ──
+    @bp.route("/api/members/<ref_code>/reset-trial", methods=["POST"])
+    @login_required
+    def api_reset_trial(ref_code):
+        data = request.json or {}
+        hours = data.get("hours", 1)
+        if hours <= 0 or hours > 24:
+            return jsonify({"error": "時數須在 1~24 之間"}), 400
+
+        ref_upper = ref_code.strip().upper()
+        r = sb().table("members").select("*").eq("referral_code", ref_upper).eq("tenant_id", g.agent["tenant_id"]).execute()
+        if not r.data:
+            return jsonify({"error": "找不到該會員"}), 404
+        target = r.data[0]
+
+        descendants = models.get_all_descendants(g.agent)
+        allowed_ids = [g.agent["agent_id"]] + [a["agent_id"] for a in descendants]
+        if target.get("referred_by") not in allowed_ids:
+            return jsonify({"error": "該會員不在你的下線中"}), 403
+
+        now = datetime.now(timezone.utc)
+        new_exp = now + timedelta(hours=hours)
+
+        sb().table("members").update({
+            "trial_start": now.isoformat(),
+            "expire_at": new_exp.isoformat(),
+            "is_member": False,
+        }).eq("user_id", target["user_id"]).eq("tenant_id", g.agent["tenant_id"]).execute()
+
+        sb().table("agent_actions_log").insert({
+            "agent_id": g.agent["agent_id"],
+            "tenant_id": g.agent["tenant_id"],
+            "action": "reset_trial",
+            "target_user_id": target["user_id"],
+            "details": {"hours": hours, "new_expire": new_exp.isoformat(), "ref_code": ref_upper},
+        }).execute()
+
+        return jsonify({"ok": True, "new_expire": new_exp.isoformat()})
+
+    # ── 數據看板（含今日新增） ──
+    @bp.route("/api/dashboard-stats")
+    @login_required
+    def api_dashboard_stats():
+        tid = g.agent["tenant_id"]
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        all_members = sb().table("members").select("*").eq("tenant_id", tid).execute().data or []
+
+        total = len(all_members)
+        active = 0
+        expired = 0
+        trial = 0
+        new_today = 0
+
+        for m in all_members:
+            status = models.classify_member(m)
+            if status in ("active", "permanent"):
+                active += 1
+            elif status == "trial":
+                trial += 1
+            elif status == "expired":
+                expired += 1
+
+            # 今日新增：trial_start 在今天
+            ts = m.get("trial_start")
+            if ts:
+                try:
+                    ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if ts_dt >= today_start:
+                        new_today += 1
+                except Exception:
+                    pass
+
+        return jsonify({
+            "total": total,
+            "active": active,
+            "trial": trial,
+            "expired": expired,
+            "new_today": new_today,
+        })
+
+    # ── 系統設定（管理員） ──
+    @bp.route("/api/admin/config", methods=["GET"])
+    @admin_required
+    def api_get_config():
+        tid = g.agent["tenant_id"]
+        r = sb().table("system_config").select("*").eq("tenant_id", tid).execute()
+        config = {}
+        for row in (r.data or []):
+            config[row["key"]] = row["value"]
+        return jsonify(config)
+
+    @bp.route("/api/admin/config", methods=["PUT"])
+    @admin_required
+    def api_update_config():
+        tid = g.agent["tenant_id"]
+        data = request.json or {}
+
+        for key, value in data.items():
+            existing = sb().table("system_config").select("id").eq("key", key).eq("tenant_id", tid).execute()
+            if existing.data:
+                sb().table("system_config").update({"value": str(value)}).eq("key", key).eq("tenant_id", tid).execute()
+            else:
+                sb().table("system_config").insert({"key": key, "value": str(value), "tenant_id": tid}).execute()
+
+        return jsonify({"ok": True})

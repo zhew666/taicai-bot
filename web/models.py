@@ -55,13 +55,25 @@ def get_fission_stats(agent):
     agent_ids = [agent["agent_id"]] + [a["agent_id"] for a in descendants]
     members = get_downline_members(agent, agent_ids)
 
-    stats = {"total": 0, "active": 0, "trial": 0, "expired": 0, "new": 0, "permanent": 0, "sub_agents": len(descendants)}
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    stats = {"total": 0, "active": 0, "trial": 0, "expired": 0, "new": 0, "permanent": 0, "sub_agents": len(descendants), "new_today": 0}
 
     for m in members:
         stats["total"] += 1
         status = classify_member(m)
         if status in stats:
             stats[status] += 1
+
+        ts = m.get("trial_start")
+        if ts:
+            try:
+                ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if ts_dt >= today_start:
+                    stats["new_today"] += 1
+            except Exception:
+                pass
 
     # 直推人數
     direct_members = [m for m in members if m.get("referred_by") == agent["agent_id"]]
