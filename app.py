@@ -592,15 +592,18 @@ def cmd_guide(user_id, token, member):
         rec = None
     plat_tag = f"[{plat}] "
     rec_str = f"  {rec}" if rec else ""
+    chat_line = "\n\n💬 期望值研究室開張 → https://line.me/R/ti/g/rHSmWrs5Gj"
     if best_val > 0:
         msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局 {label} EV={best_val:+.4f} ✅\n"
-               f"正EV機會，可考慮出手")
+               f"正EV機會，可考慮出手"
+               f"{chat_line}")
     else:
         msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局\n"
                f"目前最佳選項：{label} EV={best_val:+.4f}\n"
-               f"靴牌進行中，持續監控")
+               f"靴牌進行中，持續監控"
+               f"{chat_line}")
     reply_text(token, msg)
 
 def cmd_my_code(user_id, token, member):
@@ -2185,6 +2188,7 @@ def _poll_airdrop(latest_hands: dict):
                     lines = [f"🪂 +EV空投 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
                         lines.append(f"{label}EV：{val:+.4f} ✅")
+                    lines.append("\n💬 期望值研究室開張 → https://line.me/R/ti/g/rHSmWrs5Gj")
                     push_text(user_id, "\n".join(lines))
         except Exception as e:
             print(f"[Airdrop Error] {user_id}: {e}", flush=True)
