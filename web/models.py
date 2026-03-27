@@ -20,7 +20,12 @@ def get_direct_children(agent):
     return r.data or []
 
 def get_downline_members(agent, agent_ids=None):
-    """取得代理體系下所有會員"""
+    """取得代理體系下所有會員（admin 看全部）"""
+    if agent.get("is_admin"):
+        r = sb().table("members").select("*") \
+            .eq("tenant_id", agent["tenant_id"]) \
+            .execute()
+        return r.data or []
     if agent_ids is None:
         descendants = get_all_descendants(agent)
         agent_ids = [agent["agent_id"]] + [a["agent_id"] for a in descendants]
