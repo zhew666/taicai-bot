@@ -43,7 +43,7 @@ TG_WEBHOOK_SECRET = os.environ.get("TG_WEBHOOK_SECRET", "")
 TG_GW_CHAT_IDS  = [x.strip() for x in os.environ.get("TELEGRAM_GW_CHAT_IDS", "").split(",") if x.strip()]
 TRIAL_HOURS    = 1
 WARN_MINUTES   = 15
-GW_TIERS       = {5000: 7, 10000: 31}  # 儲值金額 → 天數
+GW_TIERS       = {5000: 15, 10000: 31}  # 儲值金額 → 天數
 ALL_TABLES_MT = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A", "TEST01"]
 ALL_TABLES    = ALL_TABLES_MT  # 向下相容
 
@@ -419,7 +419,7 @@ def cmd_continue_info(user_id, token, member):
             f"👉 BC66.gw1688.net\n\n"
             f"💰 點數可直接用來玩金盈匯平台上的遊戲\n"
             f"儲值後即可同時開通百家勝率天秤使用權\n\n"
-                        f"💡 儲值 5,000 點 → 7 天\n"
+                        f"💡 儲值 5,000 點 → 15 天\n"
             f"💡 儲值 10,000 點 → 31 天\n\n"
             f"儲值完成後回來輸入「確認儲值」")
     else:
@@ -428,7 +428,7 @@ def cmd_continue_info(user_id, token, member):
             f"👉 BC66.gw1688.net\n\n"
             f"💰 點數可直接用來玩金盈匯平台上的遊戲\n"
             f"儲值後即可同時開通百家勝率天秤使用權\n\n"
-                        f"💡 儲值 5,000 點 → 7 天\n"
+                        f"💡 儲值 5,000 點 → 15 天\n"
             f"💡 儲值 10,000 點 → 31 天\n\n"
             f"註冊完成後，輸入「綁定帳號」綁定\n"
             f"儲值完成後輸入「確認儲值」")
@@ -454,7 +454,7 @@ def cmd_confirm_deposit(user_id, token, member):
         f"📋 帳號：{account}\n"
         f"已通知客服確認您的最新儲值\n"
         f"確認後將自動延長使用期限\n\n"
-                f"💡 儲值 5,000 點 → 7 天\n"
+                f"💡 儲值 5,000 點 → 15 天\n"
         f"💡 儲值 10,000 點 → 31 天")
     # 通知 GW 客服（Telegram）
     tg_notify_gw(
@@ -592,18 +592,15 @@ def cmd_guide(user_id, token, member):
         rec = None
     plat_tag = f"[{plat}] "
     rec_str = f"  {rec}" if rec else ""
-    chat_line = ""
     if best_val > 0:
         msg = (f"🔍 最佳推薦 {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局 {label} EV={best_val:+.4f} ✅\n"
-               f"正EV機會，可考慮出手"
-               f"{chat_line}")
+               f"正EV機會，可考慮出手")
     else:
         msg = (f"🔍 最佳推薦 {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局\n"
                f"目前最佳選項：{label} EV={best_val:+.4f}\n"
-               f"靴牌進行中，持續監控"
-               f"{chat_line}")
+               f"靴牌進行中，持續監控")
     reply_text(token, msg)
 
 def cmd_my_code(user_id, token, member):
@@ -1170,7 +1167,7 @@ def cmd_bind_gw_capture(user_id, token, text):
         f"━━━━━━━━━━━━━━\n"
         f"已通知客服進行審核\n"
         f"審核通過後將自動延長使用期限\n\n"
-                f"💡 儲值 5,000 點 → 7 天\n"
+                f"💡 儲值 5,000 點 → 15 天\n"
         f"💡 儲值 10,000 點 → 31 天\n\n"
         f"請耐心等候審核結果\n"
         f"填錯了？→ 輸入「更換帳號」")
@@ -1200,7 +1197,7 @@ def cmd_gw_status(user_id, token, member):
         f"📋 金盈匯帳號：{account}\n"
         f"審核狀態：{status_label}\n"
         f"━━━━━━━━━━━━━━\n"
-                f"💡 儲值 5,000 點 → 7 天\n"
+                f"💡 儲值 5,000 點 → 15 天\n"
         f"💡 儲值 10,000 點 → 31 天")
 
 def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
@@ -1294,7 +1291,7 @@ def _do_gw_not_deposited(text: str) -> str:
             "━━━━━━━━━━━━━━\n"
             "請先前往金盈匯儲值點數\n"
             "👉 BC66.gw1688.net\n\n"
-            "💡 儲值 5,000 點 → 7 天\n"
+            "💡 儲值 5,000 點 → 15 天\n"
             "💡 儲值 10,000 點 → 31 天\n\n"
             "儲值完成後回來輸入「確認儲值」")
     except Exception:
@@ -2193,7 +2190,6 @@ def _poll_airdrop(latest_hands: dict):
                     lines = [f"🎯 +EV監控 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
                         lines.append(f"{label}EV：{val:+.4f} ✅")
-                    pass  # 聊天室推廣：商戶自行設定
                     push_text(user_id, "\n".join(lines))
         except Exception as e:
             print(f"[Airdrop Error] {user_id}: {e}", flush=True)
