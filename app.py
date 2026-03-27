@@ -1628,6 +1628,11 @@ def cmd_feature_intro(user_id, token):
         "→ 輸入「指令」查看所有指令")
 
 # ── Webhook ──────────────────────────────────────────────
+@app.route("/flow")
+def registration_flow():
+    from flask import send_from_directory
+    return send_from_directory("static", "registration-flow.html")
+
 @app.route("/health")
 def health():
     from flask import jsonify
