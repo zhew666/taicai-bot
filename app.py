@@ -609,8 +609,10 @@ def cmd_my_code(user_id, token, member):
     if exp:
         exp_dt  = datetime.fromisoformat(exp.replace("Z", "+00:00"))
         exp_str = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
-    else:
+    elif member.get("is_member"):
         exp_str = "永久"
+    else:
+        exp_str = "尚未啟動"
     reply_text(token,
         f"📋 你的推薦碼：{code}\n"
         f"使用期限：{exp_str}\n\n"
