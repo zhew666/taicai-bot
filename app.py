@@ -34,7 +34,7 @@ def sb():
 
 import httpx as _httpx
 
-REGISTER_URL    = os.environ.get("REGISTER_URL", "gw6688.gw1688.NET")
+REGISTER_URL    = os.environ.get("REGISTER_URL", "BC66.gw1688.net")
 TENANT_ID       = os.environ.get("TENANT_ID", "")
 ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
 ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
@@ -416,7 +416,7 @@ def cmd_continue_info(user_id, token, member):
     if has_account:
         reply_text(token,
             f"前往金盈匯儲值點數\n"
-            f"👉 gw6688.gw1688.NET\n\n"
+            f"👉 BC66.gw1688.net\n\n"
             f"💰 點數可直接用來玩金盈匯平台上的遊戲\n"
             f"儲值後即可同時開通百家勝率天秤使用權\n\n"
                         f"💡 儲值 5,000 點 → 7 天\n"
@@ -425,7 +425,7 @@ def cmd_continue_info(user_id, token, member):
     else:
         reply_text(token,
             f"前往金盈匯註冊並儲值點數\n"
-            f"👉 gw6688.gw1688.NET\n\n"
+            f"👉 BC66.gw1688.net\n\n"
             f"💰 點數可直接用來玩金盈匯平台上的遊戲\n"
             f"儲值後即可同時開通百家勝率天秤使用權\n\n"
                         f"💡 儲值 5,000 點 → 7 天\n"
@@ -1191,7 +1191,7 @@ def cmd_gw_status(user_id, token, member):
     if not account:
         reply_text(token,
             "尚未綁定金盈匯帳號\n\n"
-            "請先前往註冊：gw6688.gw1688.NET\n"
+            "請先前往註冊：BC66.gw1688.net\n"
             "註冊後輸入「綁定帳號」綁定")
         return
     status = member.get("gw_status", "none")
@@ -1272,7 +1272,7 @@ def _do_gw_reject(text: str) -> str:
             "❌ 帳號驗證未通過\n"
             "━━━━━━━━━━━━━━\n"
             "請確認是否已完成註冊及儲值\n\n"
-            "註冊網址：gw6688.gw1688.NET\n"
+            "註冊網址：BC66.gw1688.net\n"
             "完成後請重新輸入「確認儲值」")
     except Exception:
         pass
@@ -1293,7 +1293,7 @@ def _do_gw_not_deposited(text: str) -> str:
             "📋 帳號已確認，但尚未儲值\n"
             "━━━━━━━━━━━━━━\n"
             "請先前往金盈匯儲值點數\n"
-            "👉 gw6688.gw1688.NET\n\n"
+            "👉 BC66.gw1688.net\n\n"
             "💡 儲值 5,000 點 → 7 天\n"
             "💡 儲值 10,000 點 → 31 天\n\n"
             "儲值完成後回來輸入「確認儲值」")
@@ -1339,7 +1339,7 @@ def _do_gw_ask_cs(text: str) -> str:
             "━━━━━━━━━━━━━━\n"
             "您的帳號需要由金盈匯客服協助處理\n"
             "請直接聯繫金盈匯線上客服\n\n"
-            "👉 gw6688.gw1688.NET")
+            "👉 BC66.gw1688.net")
     except Exception:
         pass
     return f"✅ 已通知 {account} 用戶聯繫金盈匯客服"
