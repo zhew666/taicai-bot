@@ -550,7 +550,7 @@ def cmd_airdrop(user_id, token, text, member):
     with airdrop_lock:
         if user_id in airdrop:
             airdrop.pop(user_id)
-            reply_text(token, "🪂 空投監控已關閉"); return
+            reply_text(token, f"📡 {CMD_AIRDROP}已關閉"); return
 
     import re
     m = re.search(r'(\d+)', text)
@@ -573,12 +573,12 @@ def cmd_airdrop(user_id, token, text, member):
     pos = sum(1 for r in real if any(r.get(f) and r[f] > 0 for f in EV_FIELDS))
 
     lines = [
-        "🪂 空投監控已開啟",
+        f"📡 全局掃描已開啟",
         "━━━━━━━━━━━━━━",
         "",
         f"監控廳數：{active} 廳",
         f"目前正EV：{pos} 廳",
-        f"空投結束時間：{exp_tw}",
+        f"結束時間：{exp_tw}",
         "",
         "偵測到正EV時立即推播通知",
     ]
@@ -2232,7 +2232,7 @@ def _poll_airdrop(latest_hands: dict):
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
                     next_hand = cur_hand + 1
                     air_plat = row.get("platform", "MT")
-                    lines = [f"🪂 +EV空投 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
+                    lines = [f"📡 掃描到+EV訊號 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
                         lines.append(f"{label}EV：{val:+.4f} ✅")
                     push_text(user_id, "\n".join(lines))
