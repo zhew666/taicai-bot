@@ -44,9 +44,17 @@ TG_GW_CHAT_IDS  = [x.strip() for x in os.environ.get("TELEGRAM_GW_CHAT_IDS", "")
 BRAND_NAME      = os.environ.get("BRAND_NAME", "百家之眼")
 GW_NAME         = os.environ.get("GW_NAME", "金盈匯")
 CHAT_URL        = os.environ.get("CHAT_URL", "")
-TRIAL_HOURS    = 1
+TRIAL_HOURS    = int(os.environ.get("TRIAL_HOURS", "1"))
 WARN_MINUTES   = 15
-GW_TIERS       = {5000: 15, 10000: 31}  # 儲值金額 → 天數
+CMD_GUIDE      = os.environ.get("CMD_GUIDE", "仙人指路")
+CMD_AIRDROP    = os.environ.get("CMD_AIRDROP", "空投")
+CMD_FOLLOW     = os.environ.get("CMD_FOLLOW", "跟隨")
+_t1_amt = int(os.environ.get("GW_TIER_1_AMOUNT", "5000"))
+_t1_day = int(os.environ.get("GW_TIER_1_DAYS", "15"))
+_t2_amt = int(os.environ.get("GW_TIER_2_AMOUNT", "10000"))
+_t2_day = int(os.environ.get("GW_TIER_2_DAYS", "31"))
+GW_TIERS       = {_t1_amt: _t1_day, _t2_amt: _t2_day}
+GW_TIERS_TEXT  = "\n".join(f"💡 儲值 {amt:,} 點 → {days} 天" for amt, days in sorted(GW_TIERS.items()))
 ALL_TABLES_MT = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A", "TEST01"]
 ALL_TABLES    = ALL_TABLES_MT  # 向下相容
 
@@ -450,8 +458,7 @@ def cmd_continue_info(user_id, token, member):
             f"👉 gw55.GW1688.NET\n\n"
             f"💰 點數可直接用來玩{GW_NAME}平台上的遊戲\n"
             f"儲值後即可同時開通使用權\n\n"
-                        f"💡 儲值 5,000 點 → 15 天\n"
-            f"💡 儲值 10,000 點 → 31 天\n\n"
+                        f"{GW_TIERS_TEXT}\n\n"
             f"儲值完成後回來輸入「確認儲值」")
     else:
         reply_text(token,
@@ -459,8 +466,7 @@ def cmd_continue_info(user_id, token, member):
             f"👉 gw55.GW1688.NET\n\n"
             f"💰 點數可直接用來玩{GW_NAME}平台上的遊戲\n"
             f"儲值後即可同時開通使用權\n\n"
-                        f"💡 儲值 5,000 點 → 15 天\n"
-            f"💡 儲值 10,000 點 → 31 天\n\n"
+                        f"{GW_TIERS_TEXT}\n\n"
             f"註冊完成後，輸入「綁定帳號」綁定\n"
             f"儲值完成後輸入「確認儲值」")
 
@@ -485,8 +491,7 @@ def cmd_confirm_deposit(user_id, token, member):
         f"📋 帳號：{account}\n"
         f"已通知客服確認您的最新儲值\n"
         f"確認後將自動延長使用期限\n\n"
-                f"💡 儲值 5,000 點 → 15 天\n"
-        f"💡 儲值 10,000 點 → 31 天")
+                f"{GW_TIERS_TEXT}")
     # 通知 GW 客服（Telegram）
     agent_name = get_agent_name(user_id)
     tg_notify_gw(
@@ -626,11 +631,11 @@ def cmd_guide(user_id, token, member):
     plat_tag = f"[{plat}] "
     rec_str = f"  {rec}" if rec else ""
     if best_val > 0:
-        msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
+        msg = (f"🧙 {CMD_GUIDE} {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局 {label} EV={best_val:+.4f} ✅\n"
                f"正EV機會，可考慮出手")
     else:
-        msg = (f"🧙 仙人指路 {plat_tag}第{t}廳{rec_str}\n"
+        msg = (f"🧙 {CMD_GUIDE} {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局\n"
                f"目前最佳選項：{label} EV={best_val:+.4f}\n"
                f"靴牌進行中，持續監控")
@@ -681,7 +686,7 @@ def get_expire_str(member: dict) -> str:
     exp = member.get("expire_at", "")
     if not exp:
         if not member.get("trial_start"):
-            return "輸入「仙人指路」開始試用"
+            return f"輸入「{CMD_GUIDE}」開始試用"
         return "已結束"
     exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
     exp_str = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
@@ -1202,8 +1207,7 @@ def cmd_bind_gw_capture(user_id, token, text):
         f"━━━━━━━━━━━━━━\n"
         f"已通知客服進行審核\n"
         f"審核通過後將自動延長使用期限\n\n"
-                f"💡 儲值 5,000 點 → 15 天\n"
-        f"💡 儲值 10,000 點 → 31 天\n\n"
+                f"{GW_TIERS_TEXT}\n\n"
         f"請耐心等候審核結果\n"
         f"填錯了？→ 輸入「更換帳號」")
     # 通知 GW 客服審核（Telegram）
@@ -1234,8 +1238,7 @@ def cmd_gw_status(user_id, token, member):
         f"📋 {GW_NAME}帳號：{account}\n"
         f"審核狀態：{status_label}\n"
         f"━━━━━━━━━━━━━━\n"
-                f"💡 儲值 5,000 點 → 15 天\n"
-        f"💡 儲值 10,000 點 → 31 天")
+                f"{GW_TIERS_TEXT}")
 
 def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
     """純邏輯：確認儲值，回傳結果文字。成功時 LINE push 通知用戶。"""
@@ -1330,8 +1333,7 @@ def _do_gw_not_deposited(text: str) -> str:
             "━━━━━━━━━━━━━━\n"
             f"請先前往{GW_NAME}儲值點數\n"
             "👉 gw55.GW1688.NET\n\n"
-            "💡 儲值 5,000 點 → 15 天\n"
-            "💡 儲值 10,000 點 → 31 天\n\n"
+            f"{GW_TIERS_TEXT}\n\n"
             "儲值完成後回來輸入「確認儲值」")
     except Exception:
         pass
@@ -1592,7 +1594,7 @@ def cmd_ev_intro(user_id, token):
         f"{BRAND_NAME}替你即時計算每張桌的 EV，\n"
         "在正EV出現時第一時間通知你。\n\n"
         "━━━━━━━━━━━━━━\n\n"
-        "如果還是難以理解，直接輸入「仙人指路」\n"
+        f"如果還是難以理解，直接輸入「{CMD_GUIDE}」\n"
         "系統會從 MT + DG 近 30 張桌中，\n"
         "即時選出當下最佳的投注選項給你。\n"
         "這是目前全網最強的百家樂輔助功能。")
@@ -1613,7 +1615,7 @@ def cmd_card_intro(user_id, token):
         "差別是我們用電腦完整計算，\n"
         "不是靠人腦估算。\n\n"
         "━━━━━━━━━━━━━━\n\n"
-        "如果還是難以理解，直接輸入「仙人指路」\n"
+        f"如果還是難以理解，直接輸入「{CMD_GUIDE}」\n"
         "系統會從 MT + DG 近 30 張桌中，\n"
         "即時選出當下最佳的投注選項給你。\n"
         "這是目前全網最強的百家樂輔助功能。")
@@ -1629,7 +1631,7 @@ def cmd_feature_intro(user_id, token):
         "莊 / 閒 / 和 / 超級六 / 閒對 / 莊對\n\n"
         "▸ 仙人指路\n"
         "  一鍵掃描全桌，推薦🔴莊或🔵閒。\n"
-        "  → 點選單「仙人指路」\n\n"
+        f"  → 點選單「{CMD_GUIDE}」\n\n"
         "▸ 空投掃描\n"
         "  開啟後，正 EV 出現立刻推播通知你。\n"
         "  → 點選單「空投掃描」\n\n"
@@ -1642,7 +1644,7 @@ def cmd_feature_intro(user_id, token):
         "  → 輸入「EV介紹」或「算牌介紹」\n\n"
         "━━━━━━━━━━━━━━\n"
         "💡 不知道 EV 是什麼也沒關係，\n"
-        "先試「仙人指路」，看到正 EV 就是出手訊號。")
+        f"先試「{CMD_GUIDE}」，看到正 EV 就是出手訊號。")
     # 第二則：關於我們 + 推薦機制
     push_text(user_id,
         f"關於{BRAND_NAME}\n"
@@ -1852,8 +1854,8 @@ def handle_message(event):
                 dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
             except Exception:
                 dg_count = 0
-            reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
-        reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/空投/仙人指路 將使用 MT 數據"); return
+            reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 DG 數據"); return
+        reply_text(token, f"✅ 已切換到 MT 平台\n13 廳在線\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 MT 數據"); return
     if text in ("切換DG", "切換dg", "切換Dg"):
         if not is_platform_enabled("DG") and not is_admin(user_id):
             reply_text(token, "🔒 DG 場館目前未開放"); return
@@ -1866,7 +1868,7 @@ def handle_message(event):
             dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
         except Exception:
             dg_count = 0
-        reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n跟隨/空投/仙人指路 將使用 DG 數據"); return
+        reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 DG 數據"); return
     if text in ("切換MT", "切換mt", "切換Mt"):
         if not is_platform_enabled("MT") and not is_admin(user_id):
             reply_text(token, "🔒 MT 場館目前未開放"); return
@@ -1875,7 +1877,7 @@ def handle_message(event):
             following.pop(user_id, None)
         with airdrop_lock:
             airdrop.pop(user_id, None)
-        reply_text(token, "✅ 已切換到 MT 平台\n13 廳在線\n\n跟隨/空投/仙人指路 將使用 MT 數據"); return
+        reply_text(token, f"✅ 已切換到 MT 平台\n13 廳在線\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 MT 數據"); return
     if text.startswith("查詢") or text.startswith("查询"):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
@@ -1911,8 +1913,8 @@ def handle_message(event):
         pf = _pending_follow.get(user_id, {})
         if time.time() < pf.get("expire_ts", 0):
             # 檢查是否為其他有效指令，如果是就取消等待、直接走正常流程
-            _is_cmd = any(text.startswith(k) for k in ("空投","開始空投","停止","結束","stop")) or \
-                      "仙人指路" in text or "最佳推薦" in text or \
+            _is_cmd = any(text.startswith(k) for k in (CMD_AIRDROP,"空投","開始空投","全局監控","停止","結束","stop")) or \
+                      CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text or \
                       text in ("介紹","說明","指令","help","切換","切換平台","繼續","綁定帳號","確認儲值","審核狀態",
                                "功能介紹","EV介紹","算牌介紹","我的推薦碼","推薦碼","聊天室")
             if not _is_cmd:
@@ -1989,7 +1991,7 @@ def handle_message(event):
             f"👁 {follow_hint}\n"
             "→ 鎖定某張桌即時跟蹤，\n"
             "　每局推送牌面+EV\n\n"
-            "🧙 仙人指路\n"
+            f"🧙 {CMD_GUIDE}\n"
             "→ 一鍵查詢最高EV桌台\n\n"
             "🛑 停止\n"
             "→ 停止跟隨/空投\n\n"
@@ -2012,14 +2014,14 @@ def handle_message(event):
     if not check_cooldown(user_id):
         return
 
-    if any(text.startswith(k) for k in ("跟隨","跟随","追隨","追蹤","監控")):
-        body = text[2:].strip()
+    if any(text.startswith(k) for k in (CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控")):
+        body = re.sub(r'^(' + '|'.join([CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控"]) + ')', '', text).strip()
         cmd_follow(user_id, token, "跟隨" + body, member)
-    elif text.startswith("空投") or text.startswith("開始空投") or text.startswith("全局監控"):
+    elif text.startswith(CMD_AIRDROP) or text.startswith("空投") or text.startswith("開始空投") or text.startswith("全局監控"):
         cmd_airdrop(user_id, token, text, member)
     elif text in ("停止", "結束", "stop", "Stop", "STOP"):
         cmd_stop(user_id, token)
-    elif "仙人指路" in text or "最佳推薦" in text:
+    elif CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text:
         cmd_guide(user_id, token, member)
     elif text.startswith("好友推薦碼") or text.startswith("好友推荐码"):
         cmd_enter_code(user_id, token, text, member)
@@ -2202,9 +2204,9 @@ def _poll_airdrop(latest_hands: dict):
             if now > state["expire_at"]:
                 cnt = state.get("push_count", 0)
                 if cnt > 0:
-                    end_msg = f"🪂 空投監控已結束\n本次共捕獲 {cnt} 次 +EV 空投\n\n輸入「空投」可再次啟動"
+                    end_msg = f"🪂 {CMD_AIRDROP}監控已結束\n本次共捕獲 {cnt} 次 +EV\n\n輸入「{CMD_AIRDROP}」可再次啟動"
                 else:
-                    end_msg = "🪂 空投監控已結束\n本次監控期間未偵測到 +EV\n\n輸入「空投」可再次啟動"
+                    end_msg = f"🪂 {CMD_AIRDROP}監控已結束\n本次監控期間未偵測到 +EV\n\n輸入「{CMD_AIRDROP}」可再次啟動"
                 push_text(user_id, end_msg)
                 with airdrop_lock:
                     airdrop.pop(user_id, None)
