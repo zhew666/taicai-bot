@@ -161,7 +161,7 @@ def init_app(bp):
             return jsonify({"error": "推廣碼只能包含英文、數字、底線、連字號"}), 400
 
         # Check not taken
-        existing = sb().table("custom_referral_codes").select("id").eq("code", code).execute()
+        existing = sb().table("custom_referral_codes").select("id").eq("code", code).eq("tenant_id", g.agent["tenant_id"]).execute()
         if existing.data:
             return jsonify({"error": "此推廣碼已被使用"}), 409
 
@@ -346,7 +346,7 @@ def init_app(bp):
 
     # ── 數據看板（含今日新增） ──
     @bp.route("/api/dashboard-stats")
-    @login_required
+    @admin_required
     def api_dashboard_stats():
         tid = g.agent["tenant_id"]
         now = datetime.now(timezone.utc)

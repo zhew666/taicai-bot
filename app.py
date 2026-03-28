@@ -41,6 +41,9 @@ ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
 TG_BOT_TOKEN    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TG_WEBHOOK_SECRET = os.environ.get("TG_WEBHOOK_SECRET", "")
 TG_GW_CHAT_IDS  = [x.strip() for x in os.environ.get("TELEGRAM_GW_CHAT_IDS", "").split(",") if x.strip()]
+BRAND_NAME      = os.environ.get("BRAND_NAME", "百家之眼")
+GW_NAME         = os.environ.get("GW_NAME", "金盈匯")
+CHAT_URL        = os.environ.get("CHAT_URL", "")
 TRIAL_HOURS    = 1
 WARN_MINUTES   = 15
 GW_TIERS       = {5000: 15, 10000: 31}  # 儲值金額 → 天數
@@ -106,6 +109,34 @@ def tg_notify_gw(text: str):
     for chat_id in TG_GW_CHAT_IDS:
         tg_send(chat_id, text)
 
+def _find_top_agent(user_id, depth=0):
+    """往上追溯 referred_by，直到找到代理"""
+    if depth > 10:
+        return f"{BRAND_NAME}官方"
+    # 查是否為代理
+    try:
+        r = sb().table("agents").select("display_name,custom_ref_code").eq("agent_id", user_id).eq("tenant_id", TENANT_ID).limit(1).execute()
+        if r.data:
+            a = r.data[0]
+            return a.get("custom_ref_code") or a.get("display_name") or f"{BRAND_NAME}官方"
+    except Exception:
+        pass
+    # 不是代理，查這個人的上線
+    try:
+        r2 = sb().table("members").select("referred_by").eq("user_id", user_id).eq("tenant_id", TENANT_ID).limit(1).execute()
+        if r2.data and r2.data[0].get("referred_by"):
+            return _find_top_agent(r2.data[0]["referred_by"], depth + 1)
+    except Exception:
+        pass
+    return f"{BRAND_NAME}官方"
+
+def get_agent_name(user_id):
+    """取得會員的上級代理名稱"""
+    member = sb().table("members").select("referred_by").eq("user_id", user_id).eq("tenant_id", TENANT_ID).limit(1).execute()
+    if not member.data or not member.data[0].get("referred_by"):
+        return f"{BRAND_NAME}官方"
+    return _find_top_agent(member.data[0]["referred_by"])
+
 # ── system_config 快取（30 秒刷新一次，減少 DB 查詢）──
 _config_cache = {"data": {}, "ts": 0}
 _CONFIG_TTL = 30  # 秒
@@ -114,7 +145,10 @@ def _get_config(key: str, default: str = "") -> str:
     now = time.time()
     if now - _config_cache["ts"] > _CONFIG_TTL:
         try:
-            rows = sb().table("system_config").select("key,value").execute().data or []
+            q = sb().table("system_config").select("key,value")
+            if TENANT_ID:
+                q = q.eq("tenant_id", TENANT_ID)
+            rows = q.execute().data or []
             _config_cache["data"] = {r["key"]: r["value"] for r in rows}
             _config_cache["ts"] = now
         except Exception as e:
@@ -122,7 +156,10 @@ def _get_config(key: str, default: str = "") -> str:
     return _config_cache["data"].get(key, default)
 
 def _set_config(key: str, value: str):
-    sb().table("system_config").upsert({"key": key, "value": value}).execute()
+    data = {"key": key, "value": value}
+    if TENANT_ID:
+        data["tenant_id"] = TENANT_ID
+    sb().table("system_config").upsert(data, on_conflict="key,tenant_id").execute()
     _config_cache["data"][key] = value
     _config_cache["ts"] = time.time()
 
@@ -404,7 +441,7 @@ def expired_reply(token: str, member: dict):
     code = member.get("referral_code", "N/A")
     reply_text(token,
         f"⏰ 試用已結束\n\n"
-        f"想繼續使用百家之眼嗎？\n"
+        f"想繼續使用嗎？\n"
         f"回覆「繼續」即可了解方案\n\n"
         f"━━━━━━━━━━━━━━\n"
         f"📋 你的推薦碼：{code}\n"
@@ -415,19 +452,19 @@ def cmd_continue_info(user_id, token, member):
     has_account = member.get("gw_account")
     if has_account:
         reply_text(token,
-            f"前往金盈匯儲值點數\n"
+            f"前往{GW_NAME}儲值點數\n"
             f"👉 gw55.GW1688.NET\n\n"
-            f"💰 點數可直接用來玩金盈匯平台上的遊戲\n"
-            f"儲值後即可同時開通百家之眼使用權\n\n"
+            f"💰 點數可直接用來玩{GW_NAME}平台上的遊戲\n"
+            f"儲值後即可同時開通使用權\n\n"
                         f"💡 儲值 5,000 點 → 15 天\n"
             f"💡 儲值 10,000 點 → 31 天\n\n"
             f"儲值完成後回來輸入「確認儲值」")
     else:
         reply_text(token,
-            f"前往金盈匯註冊並儲值點數\n"
+            f"前往{GW_NAME}註冊並儲值點數\n"
             f"👉 gw55.GW1688.NET\n\n"
-            f"💰 點數可直接用來玩金盈匯平台上的遊戲\n"
-            f"儲值後即可同時開通百家之眼使用權\n\n"
+            f"💰 點數可直接用來玩{GW_NAME}平台上的遊戲\n"
+            f"儲值後即可同時開通使用權\n\n"
                         f"💡 儲值 5,000 點 → 15 天\n"
             f"💡 儲值 10,000 點 → 31 天\n\n"
             f"註冊完成後，輸入「綁定帳號」綁定\n"
@@ -438,7 +475,7 @@ def cmd_confirm_deposit(user_id, token, member):
     account = member.get("gw_account")
     if not account:
         reply_text(token,
-            "尚未綁定金盈匯帳號\n\n"
+            f"尚未綁定{GW_NAME}帳號\n\n"
             "請先輸入「綁定帳號」綁定後再確認儲值")
         return
     status = member.get("gw_status", "none")
@@ -457,10 +494,12 @@ def cmd_confirm_deposit(user_id, token, member):
                 f"💡 儲值 5,000 點 → 15 天\n"
         f"💡 儲值 10,000 點 → 31 天")
     # 通知 GW 客服（Telegram）
+    agent_name = get_agent_name(user_id)
     tg_notify_gw(
         f"📋 儲值待確認\n"
         f"━━━━━━━━━━━━━━\n"
-        f"金盈匯帳號：{account}\n\n"
+        f"{GW_NAME}帳號：{account}\n"
+        f"上級代理：{agent_name}\n\n"
         f"請確認儲值後回覆：\n"
         f"  確認 {account} <金額>\n\n"
         f"未通過請回覆：\n"
@@ -1091,7 +1130,7 @@ def cmd_agent_confirm(user_id, token):
         pass
     return True
 
-# ── GW 金盈匯相關 ──────────────────────────────────────────
+# ── GW {GW_NAME}相關 ──────────────────────────────────────────
 def cmd_bind_gw_start(user_id, token, member):
     """用戶輸入「綁定帳號」，進入二段式問答"""
     existing = member.get("gw_account")
@@ -1109,7 +1148,7 @@ def cmd_bind_gw_start(user_id, token, member):
             reply_text(token,
                 f"📋 你的帳號：{existing}\n"
                 f"狀態：已通過 ✅\n\n"
-                f"如需再次延長，請在金盈匯儲值點數後\n"
+                f"如需再次延長，請在{GW_NAME}儲值點數後\n"
                 f"客服確認後會自動延長期限")
         elif status == "rejected":
             reply_text(token,
@@ -1125,7 +1164,7 @@ def cmd_bind_gw_start(user_id, token, member):
 
     _pending_bind[user_id] = {"state": "awaiting_account", "expire_ts": time.time() + 120}
     reply_text(token,
-        "請輸入您在金盈匯的帳號：\n"
+        f"請輸入您在{GW_NAME}的帳號：\n"
         "━━━━━━━━━━━━━━\n"
         "直接輸入帳號即可（英文、數字皆可）\n\n"
         "⏳ 請在 2 分鐘內輸入")
@@ -1141,7 +1180,7 @@ def cmd_bind_gw_rebind(user_id, token, member):
     _pending_bind[user_id] = {"state": "awaiting_account", "expire_ts": time.time() + 120}
     msg = f"目前綁定：{old}\n\n" if old else ""
     reply_text(token,
-        f"{msg}請輸入新的金盈匯帳號：\n"
+        f"{msg}請輸入新的{GW_NAME}帳號：\n"
         "━━━━━━━━━━━━━━\n"
         "直接輸入帳號即可\n\n"
         "⏳ 請在 2 分鐘內輸入")
@@ -1165,7 +1204,7 @@ def cmd_bind_gw_capture(user_id, token, text):
         "gw_status": "pending"
     }).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
     reply_text(token,
-        f"✅ 已記錄您的金盈匯帳號：{account}\n"
+        f"✅ 已記錄您的{GW_NAME}帳號：{account}\n"
         f"━━━━━━━━━━━━━━\n"
         f"已通知客服進行審核\n"
         f"審核通過後將自動延長使用期限\n\n"
@@ -1174,10 +1213,12 @@ def cmd_bind_gw_capture(user_id, token, text):
         f"請耐心等候審核結果\n"
         f"填錯了？→ 輸入「更換帳號」")
     # 通知 GW 客服審核（Telegram）
+    agent_name = get_agent_name(user_id)
     tg_notify_gw(
         f"📋 新帳號待審核\n"
         f"━━━━━━━━━━━━━━\n"
-        f"金盈匯帳號：{account}\n\n"
+        f"{GW_NAME}帳號：{account}\n"
+        f"上級代理：{agent_name}\n\n"
         f"請確認註冊及儲值後回覆：\n"
         f"  確認 {account} <金額>\n\n"
         f"未通過請回覆：\n"
@@ -1189,14 +1230,14 @@ def cmd_gw_status(user_id, token, member):
     account = member.get("gw_account")
     if not account:
         reply_text(token,
-            "尚未綁定金盈匯帳號\n\n"
+            f"尚未綁定{GW_NAME}帳號\n\n"
             "請先前往註冊：gw55.GW1688.NET\n"
             "註冊後輸入「綁定帳號」綁定")
         return
     status = member.get("gw_status", "none")
     status_label = {"none": "未提交", "pending": "審核中", "verified": "已通過", "rejected": "未通過"}.get(status, status)
     reply_text(token,
-        f"📋 金盈匯帳號：{account}\n"
+        f"📋 {GW_NAME}帳號：{account}\n"
         f"審核狀態：{status_label}\n"
         f"━━━━━━━━━━━━━━\n"
                 f"💡 儲值 5,000 點 → 15 天\n"
@@ -1212,13 +1253,15 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
         amount = int(parts[2])
     except ValueError:
         return "金額請輸入數字"
-    # 彈性金額判斷：4900~9599→7天，9600+→31天
-    if amount >= 9600:
-        days = 31
-    elif amount >= 4900:
-        days = 7
-    else:
-        return f"金額不足\n最低 4,900 點 → 7 天\n10,000 點 → 31 天"
+    # 用 GW_TIERS 判斷天數（允許 ±10% 彈性）
+    days = None
+    for tier_amount in sorted(GW_TIERS.keys(), reverse=True):
+        if amount >= int(tier_amount * 0.9):
+            days = GW_TIERS[tier_amount]
+            break
+    if days is None:
+        min_tier = min(GW_TIERS.keys())
+        return f"金額不足\n最低 {min_tier:,} 點 → {GW_TIERS[min_tier]} 天"
     r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
@@ -1250,7 +1293,7 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
             f"儲值點數：{amount:,}\n"
             f"使用期限延長 {days} 天\n"
             f"新到期時間：{new_exp_tw}\n\n"
-            f"感謝使用百家之眼！")
+            f"感謝使用{BRAND_NAME}！")
     except Exception:
         pass
     return f"✅ 已確認 {account}\n儲值 {amount} 點 → 延長 {days} 天\n新到期：{new_exp_tw}"
@@ -1291,7 +1334,7 @@ def _do_gw_not_deposited(text: str) -> str:
         push_text(target_uid,
             "📋 帳號已確認，但尚未儲值\n"
             "━━━━━━━━━━━━━━\n"
-            "請先前往金盈匯儲值點數\n"
+            f"請先前往{GW_NAME}儲值點數\n"
             "👉 gw55.GW1688.NET\n\n"
             "💡 儲值 5,000 點 → 15 天\n"
             "💡 儲值 10,000 點 → 31 天\n\n"
@@ -1315,7 +1358,7 @@ def _do_gw_not_found(text: str) -> str:
         push_text(target_uid,
             "❌ 查無此帳號\n"
             "━━━━━━━━━━━━━━\n"
-            "金盈匯查無您綁定的帳號\n"
+            f"{GW_NAME}查無您綁定的帳號\n"
             "請確認帳號是否正確\n\n"
             "如需重新綁定，請輸入「綁定帳號」")
     except Exception:
@@ -1323,7 +1366,7 @@ def _do_gw_not_found(text: str) -> str:
     return f"✅ 已通知 {account} 用戶查無此帳號"
 
 def _do_gw_ask_cs(text: str) -> str:
-    """客服回報：請用戶聯繫金盈匯客服"""
+    """客服回報：請用戶聯繫 GW 客服"""
     parts = text.strip().split()
     if len(parts) < 2:
         return "格式：請詢問 <帳號>"
@@ -1334,14 +1377,14 @@ def _do_gw_ask_cs(text: str) -> str:
     target_uid = r.data[0]["user_id"]
     try:
         push_text(target_uid,
-            "📋 請聯繫金盈匯客服\n"
+            f"📋 請聯繫{GW_NAME}客服\n"
             "━━━━━━━━━━━━━━\n"
-            "您的帳號需要由金盈匯客服協助處理\n"
-            "請直接聯繫金盈匯線上客服\n\n"
+            f"您的帳號需要由{GW_NAME}客服協助處理\n"
+            f"請直接聯繫{GW_NAME}線上客服\n\n"
             "👉 gw55.GW1688.NET")
     except Exception:
         pass
-    return f"✅ 已通知 {account} 用戶聯繫金盈匯客服"
+    return f"✅ 已通知 {account} 用戶聯繫{GW_NAME}客服"
 
 def _do_gw_reply(text: str) -> str:
     """客服自訂回覆"""
@@ -1356,7 +1399,7 @@ def _do_gw_reply(text: str) -> str:
     target_uid = r.data[0]["user_id"]
     try:
         push_text(target_uid,
-            f"📋 金盈匯客服回覆\n"
+            f"📋 {GW_NAME}客服回覆\n"
             f"━━━━━━━━━━━━━━\n"
             f"{message}")
     except Exception:
@@ -1552,7 +1595,7 @@ def cmd_ev_intro(user_id, token):
         "百家樂通常莊閒 EV 都是負的，\n"
         "但隨著牌靴消耗，偶爾會出現\n"
         "EV 翻正的瞬間 — 這就是出手時機。\n\n"
-        "百家之眼替你即時計算每張桌的 EV，\n"
+        f"{BRAND_NAME}替你即時計算每張桌的 EV，\n"
         "在正EV出現時第一時間通知你。\n\n"
         "━━━━━━━━━━━━━━\n\n"
         "如果還是難以理解，直接輸入「仙人指路」\n"
@@ -1562,7 +1605,7 @@ def cmd_ev_intro(user_id, token):
 
 def cmd_card_intro(user_id, token):
     reply_text(token,
-        "🃏 百家之眼怎麼算？\n"
+        f"🃏 {BRAND_NAME}怎麼算？\n"
         "━━━━━━━━━━━━━━\n\n"
         "百家樂用 8 副牌（416 張），\n"
         "每發一局牌，剩餘牌組就會改變。\n\n"
@@ -1584,7 +1627,7 @@ def cmd_card_intro(user_id, token):
 def cmd_feature_intro(user_id, token):
     # 第一則：功能與使用方式
     reply_text(token,
-        "百家之眼 ── 功能介紹\n"
+        f"{BRAND_NAME} ── 功能介紹\n"
         "━━━━━━━━━━━━━━\n\n"
         "即時監控兩大場館百家樂：\n"
         "  MT 13 廳 ＋ DG 14 桌\n"
@@ -1608,12 +1651,12 @@ def cmd_feature_intro(user_id, token):
         "先試「仙人指路」，看到正 EV 就是出手訊號。")
     # 第二則：關於我們 + 推薦機制
     push_text(user_id,
-        "關於百家之眼\n"
+        f"關於{BRAND_NAME}\n"
         "━━━━━━━━━━━━━━\n\n"
         "百家樂不是純運氣的遊戲。\n"
         "8 副牌、416 張牌，每發一張牌，\n"
         "剩餘牌組的機率結構就在改變。\n\n"
-        "百家之眼做的事很單純：\n"
+        f"{BRAND_NAME}做的事很單純：\n"
         "同時監控 MT + DG 兩大場館，\n"
         "把數學算好，即時告訴你。\n\n"
         "我們不賣牌路、不帶單、不保證贏，\n"
@@ -1664,20 +1707,20 @@ def telegram_webhook():
     print(f"[TG] chat_id={chat_id}: {text}", flush=True)
     # /start 指令 — 回傳 chat_id 方便設定
     if text == "/start":
-        tg_send(chat_id, f"歡迎使用百家之眼 GW 客服系統\n\n你的 Chat ID：{chat_id}\n\n請將此 ID 提供給管理員完成設定")
+        tg_send(chat_id, f"歡迎使用{BRAND_NAME} GW 客服系統\n\n你的 Chat ID：{chat_id}\n\n請將此 ID 提供給管理員完成設定")
         return "OK"
     # 驗證是否為 GW 客服
     if chat_id not in TG_GW_CHAT_IDS:
         tg_send(chat_id, f"⚠️ 無權限\n你的 Chat ID：{chat_id}\n請聯繫管理員開通")
         return "OK"
     # 處理指令
-    CMD_HELP = ("📋 百家之眼 GW 客服指令\n"
+    CMD_HELP = (f"📋 {BRAND_NAME} GW 客服指令\n"
                 "━━━━━━━━━━━━━━\n\n"
                 "確認 <帳號> <金額>\n→ 儲值確認，自動延長期限\n\n"
                 "未儲值 <帳號>\n→ 帳號存在但尚未儲值\n\n"
                 "查無 <帳號>\n→ 查無此帳號\n\n"
                 "未通過 <帳號>\n→ 驗證未通過\n\n"
-                "請詢問 <帳號>\n→ 請用戶聯繫金盈匯客服\n\n"
+                f"請詢問 <帳號>\n→ 請用戶聯繫{GW_NAME}客服\n\n"
                 "回覆 <帳號> <訊息>\n→ 自訂回覆內容\n\n"
                 "範例：確認 abc123 5000")
     if text.startswith("確認") or text.startswith("确认"):
@@ -1933,13 +1976,17 @@ def handle_message(event):
     if text in ("審核狀態", "审核状态", "審核"):
         cmd_gw_status(user_id, token, member); return
     if text in ("聊天室", "群組", "社群"):
-        reply_text(token, "💬 加入百家之眼聊天室\n\n👉 https://line.me/ti/g/ddjjpjznQL"); return
+        if CHAT_URL:
+            reply_text(token, f"💬 加入{BRAND_NAME}聊天室\n\n👉 {CHAT_URL}")
+        else:
+            reply_text(token, f"💬 {BRAND_NAME}聊天室尚未開放")
+        return
     if text in ("說明", "说明", "help", "指令", "Help", "HELP"):
         plat_now = get_user_platform(member)
         plat_info = "DG 14 桌" if plat_now == "DG" else "MT 13 廳"
         follow_hint = "跟隨 01~07" if plat_now == "DG" else "跟隨 X廳（1~13）"
         reply_text(token,
-            f"🃏 百家之眼 指令說明\n"
+            f"🃏 {BRAND_NAME} 指令說明\n"
             f"📡 目前場館：{plat_info}（輸入「切換」可切換）\n"
             "━━━━━━━━━━━━━━\n\n"
             "🪂 空投 X\n"
@@ -1957,7 +2004,7 @@ def handle_message(event):
             "━━━━━━━━━━━━━━\n\n"
             "📋 我的推薦碼 → 查推薦碼與期限\n"
             "🎁 好友推薦碼 REF-XXXX → 輸入推薦碼\n"
-            "🔗 綁定帳號 → 綁定金盈匯帳號\n"
+            f"🔗 綁定帳號 → 綁定{GW_NAME}帳號\n"
             "💰 確認儲值 → 儲值後通知客服確認\n"
             "📊 審核狀態 → 查詢帳號審核進度\n"
             "📊 EV介紹 → EV期望值是什麼？\n"
@@ -2214,7 +2261,7 @@ def _poll_trial_warnings():
                 try:
                     push_text(m["user_id"],
                         f"⏰ 試用即將結束（剩餘 15 分鐘）\n\n"
-                        f"想繼續使用百家之眼嗎？\n"
+                        f"想繼續使用嗎？\n"
                         f"回覆「繼續」即可了解方案\n\n"
                         f"📋 你的推薦碼：{code}\n"
                         f"分享給好友也能獲得額外時間")
