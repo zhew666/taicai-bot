@@ -16,7 +16,12 @@ def init_app(bp):
         page = request.args.get("page", 1, type=int)
         status = request.args.get("status", None)
         search = request.args.get("q", None)
-        result = models.get_members_paginated(g.agent, page=page, status_filter=status, search=search)
+        try:
+            result = models.get_members_paginated(g.agent, page=page, status_filter=status, search=search)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return f"<pre>會員列表載入失敗：{e}</pre>", 500
         return render_template("members.html", agent=g.agent, is_admin=g.is_admin, **result)
 
     @bp.route("/settings")
