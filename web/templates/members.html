@@ -8,7 +8,7 @@
 
 <!-- Filters -->
 <form method="GET" class="grid">
-    <input type="text" name="q" placeholder="搜尋推廣碼或名稱..." value="{{ request.args.get('q', '') }}">
+    <input type="text" name="q" placeholder="搜尋推廣碼、名稱或GW帳號..." value="{{ request.args.get('q', '') }}">
     <select name="status">
         <option value="">全部狀態</option>
         <option value="active" {% if request.args.get('status')=='active' %}selected{% endif %}>活躍</option>
@@ -19,12 +19,13 @@
     <button type="submit">篩選</button>
 </form>
 
-<figure>
+<figure style="overflow-x:auto;">
 <table>
     <thead>
         <tr>
             <th>推廣碼</th>
             <th>名稱</th>
+            <th>GW帳號</th>
             <th>狀態</th>
             <th>到期時間</th>
             <th>操作</th>
@@ -35,6 +36,7 @@
         <tr>
             <td><code>{{ m.referral_code }}</code></td>
             <td>{{ m.display_name or '-' }}</td>
+            <td>{{ m.gw_account or '-' }}</td>
             <td>
                 {% if m._status == 'active' %}
                     <mark>活躍</mark>
@@ -50,7 +52,7 @@
             </td>
             <td>
                 {% if m.expire_at %}
-                    {{ m.expire_at[:16].replace('T', ' ') }}
+                    {{ m._expire_tw }}
                 {% elif m.is_member %}
                     永久
                 {% else %}
@@ -63,13 +65,14 @@
                 <button class="outline btn-sm secondary" onclick="setExpire('{{ m.referral_code }}', '{{ m.expire_at[:16] if m.expire_at else '' }}')">修改</button>
                 {% if is_admin %}
                 <button class="outline btn-sm contrast" onclick="activateMember('{{ m.referral_code }}')">開通</button>
+                <button class="outline btn-sm" style="color:var(--pico-mark-background-color);border-color:var(--pico-mark-background-color);" onclick="resetTrial('{{ m.referral_code }}')">重置試用</button>
                 {% endif %}
                 {% endif %}
             </td>
         </tr>
         {% endfor %}
         {% if not members %}
-        <tr><td colspan="5" style="text-align:center;">無資料</td></tr>
+        <tr><td colspan="6" style="text-align:center;">無資料</td></tr>
         {% endif %}
     </tbody>
 </table>
@@ -121,6 +124,22 @@
         </footer>
     </article>
 </dialog>
+
+<!-- Reset Trial Modal -->
+<dialog id="resetTrialDialog">
+    <article>
+        <header>重置試用</header>
+        <p>會員：<strong id="resetTrialTarget"></strong></p>
+        <label>
+            試用時數
+            <input type="number" id="resetTrialHours" min="1" max="24" value="2">
+        </label>
+        <footer>
+            <button class="secondary" onclick="document.getElementById('resetTrialDialog').close()">取消</button>
+            <button onclick="submitResetTrial()">確認重置</button>
+        </footer>
+    </article>
+</dialog>
 {% endblock %}
 
 {% block scripts %}
@@ -142,7 +161,7 @@ function submitExtend() {
     .then(data => {
         document.getElementById('extendDialog').close();
         if (data.ok) {
-            alert(`已延長 ${days} 天，新到期：${data.new_expire.slice(0,16).replace('T',' ')}`);
+            alert(`已延長 ${days} 天`);
             location.reload();
         } else {
             alert(data.error || '操作失敗');
@@ -160,6 +179,31 @@ function activateMember(ref) {
     .then(data => {
         if (data.ok) { alert('已開通為永久正式會員'); location.reload(); }
         else { alert(data.error || '操作失敗'); }
+    })
+    .catch(() => alert('網路錯誤'));
+}
+let resetRef = '';
+function resetTrial(ref) {
+    resetRef = ref;
+    document.getElementById('resetTrialTarget').textContent = ref;
+    document.getElementById('resetTrialDialog').showModal();
+}
+function submitResetTrial() {
+    const hours = parseInt(document.getElementById('resetTrialHours').value);
+    fetch(`/dashboard/api/members/${resetRef}/reset-trial`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({hours: hours})
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('resetTrialDialog').close();
+        if (data.ok) {
+            alert(`已重置為 ${hours} 小時試用`);
+            location.reload();
+        } else {
+            alert(data.error || '操作失敗');
+        }
     })
     .catch(() => alert('網路錯誤'));
 }
@@ -182,7 +226,7 @@ function submitSetExpire() {
     .then(data => {
         document.getElementById('setExpireDialog').close();
         if (data.ok) {
-            alert(`到期時間已修改為：${data.new_expire.slice(0,16).replace('T',' ')}`);
+            alert('到期時間已修改');
             location.reload();
         } else {
             alert(data.error || '操作失敗');

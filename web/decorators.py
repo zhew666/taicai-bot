@@ -13,7 +13,11 @@ def login_required(f):
         if not session:
             return redirect(url_for("dashboard.login"))
         agent_id = session["agent_id"]
-        r = sb().table("agents").select("*").eq("agent_id", agent_id).execute()
+        tid = session.get("tenant_id", "")
+        q = sb().table("agents").select("*").eq("agent_id", agent_id)
+        if tid:
+            q = q.eq("tenant_id", tid)
+        r = q.execute()
         if not r.data or not r.data[0].get("is_active"):
             return redirect(url_for("dashboard.login"))
         g.agent = r.data[0]

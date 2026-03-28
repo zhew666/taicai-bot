@@ -44,8 +44,13 @@ def classify_member(m):
         try:
             exp = datetime.fromisoformat(m["expire_at"].replace("Z", "+00:00"))
             if exp > now:
-                remaining = (exp - now).total_seconds()
-                return "active" if remaining > 86400 else "trial"
+                # 有 trial_start 但沒被開通過 → 還是試用；否則是正式
+                if not m.get("is_member") and m.get("trial_start"):
+                    ts = datetime.fromisoformat(m["trial_start"].replace("Z", "+00:00"))
+                    # 試用期 = trial_start 後 24 小時內
+                    if (exp - ts).total_seconds() <= 86400:
+                        return "trial"
+                return "active"
             else:
                 return "expired"
         except Exception:
@@ -101,6 +106,7 @@ def get_members_paginated(agent, page=1, per_page=20, status_filter=None, search
         members = [m for m in members
                    if search in (m.get("referral_code") or "").upper()
                    or search in (m.get("display_name") or "").upper()
+                   or search in (m.get("gw_account") or "").upper()
                    or search in (m.get("user_id") or "").upper()]
 
     # Sort: active first, then by expire_at desc
@@ -117,9 +123,18 @@ def get_members_paginated(agent, page=1, per_page=20, status_filter=None, search
     start = (page - 1) * per_page
     page_members = members[start:start + per_page]
 
-    # Annotate with status
+    # Annotate with status + TW time
+    TW = timezone(timedelta(hours=8))
     for m in page_members:
         m["_status"] = classify_member(m)
+        if m.get("expire_at"):
+            try:
+                exp_dt = datetime.fromisoformat(m["expire_at"].replace("Z", "+00:00"))
+                m["_expire_tw"] = exp_dt.astimezone(TW).strftime("%m/%d %H:%M")
+            except Exception:
+                m["_expire_tw"] = m["expire_at"][:16].replace("T", " ")
+        else:
+            m["_expire_tw"] = ""
 
     return {
         "members": page_members,
