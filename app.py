@@ -1913,8 +1913,8 @@ def handle_message(event):
         pf = _pending_follow.get(user_id, {})
         if time.time() < pf.get("expire_ts", 0):
             # 檢查是否為其他有效指令，如果是就取消等待、直接走正常流程
-            _is_cmd = any(text.startswith(k) for k in (CMD_AIRDROP,"空投","開始空投","全局監控","停止","結束","stop")) or \
-                      CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text or \
+            _is_cmd = any(text.startswith(k) for k in (CMD_AIRDROP,"空投","開始空投","全局監控","掃描桌檯","掃描桌台","停止","結束","stop")) or \
+                      CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text or "開始報牌" in text or \
                       text in ("介紹","說明","指令","help","切換","切換平台","繼續","綁定帳號","確認儲值","審核狀態",
                                "功能介紹","EV介紹","算牌介紹","我的推薦碼","推薦碼","聊天室")
             if not _is_cmd:
@@ -2017,11 +2017,11 @@ def handle_message(event):
     if any(text.startswith(k) for k in (CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控")):
         body = re.sub(r'^(' + '|'.join([CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控"]) + ')', '', text).strip()
         cmd_follow(user_id, token, "跟隨" + body, member)
-    elif text.startswith(CMD_AIRDROP) or text.startswith("空投") or text.startswith("開始空投") or text.startswith("全局監控"):
+    elif text.startswith(CMD_AIRDROP) or text.startswith("空投") or text.startswith("開始空投") or text.startswith("全局監控") or text.startswith("掃描桌檯") or text.startswith("掃描桌台"):
         cmd_airdrop(user_id, token, text, member)
     elif text in ("停止", "結束", "stop", "Stop", "STOP"):
         cmd_stop(user_id, token)
-    elif CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text:
+    elif CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text or "開始報牌" in text:
         cmd_guide(user_id, token, member)
     elif text.startswith("好友推薦碼") or text.startswith("好友推荐码"):
         cmd_enter_code(user_id, token, text, member)
