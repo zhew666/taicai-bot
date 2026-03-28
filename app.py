@@ -632,11 +632,11 @@ def cmd_guide(user_id, token, member):
     rec_str = f"  {rec}" if rec else ""
     if best_val > 0:
         msg = (f"🧙 {CMD_GUIDE} {plat_tag}第{t}廳{rec_str}\n"
-               f"第{next_hand}局 {label} EV={best_val:+.4f} ✅\n"
+               f"第{next_hand}局 {label} EV={best_val:+.4f} ✅{d_str}\n"
                f"正EV機會，可考慮出手")
     else:
         msg = (f"🧙 {CMD_GUIDE} {plat_tag}第{t}廳{rec_str}\n"
-               f"第{next_hand}局\n"
+               f"第{next_hand}局{d_str}\n"
                f"目前最佳選項：{label} EV={best_val:+.4f}\n"
                f"靴牌進行中，持續監控")
     reply_text(token, msg)
