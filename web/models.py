@@ -1,5 +1,33 @@
+import os
 from datetime import datetime, timezone, timedelta
 from .utils import sb
+
+BRAND_NAME = os.environ.get("BRAND_NAME", "百家之眼")
+
+def _resolve_agent(m, current_agent):
+    """追溯會員的上級代理名稱"""
+    ref_by = m.get("referred_by")
+    if not ref_by:
+        return f"{BRAND_NAME}官方"
+    return _find_top_agent_local(ref_by, current_agent["tenant_id"])
+
+def _find_top_agent_local(user_id, tenant_id, depth=0):
+    if depth > 10:
+        return f"{BRAND_NAME}官方"
+    try:
+        r = sb().table("agents").select("display_name,custom_ref_code").eq("agent_id", user_id).eq("tenant_id", tenant_id).limit(1).execute()
+        if r.data:
+            a = r.data[0]
+            return a.get("custom_ref_code") or a.get("display_name") or f"{BRAND_NAME}官方"
+    except Exception:
+        pass
+    try:
+        r2 = sb().table("members").select("referred_by").eq("user_id", user_id).eq("tenant_id", tenant_id).limit(1).execute()
+        if r2.data and r2.data[0].get("referred_by"):
+            return _find_top_agent_local(r2.data[0]["referred_by"], tenant_id, depth + 1)
+    except Exception:
+        pass
+    return f"{BRAND_NAME}官方"
 
 def get_all_descendants(agent):
     """取得代理所有下線代理（不含自己）"""
@@ -123,10 +151,11 @@ def get_members_paginated(agent, page=1, per_page=20, status_filter=None, search
     start = (page - 1) * per_page
     page_members = members[start:start + per_page]
 
-    # Annotate with status + TW time
+    # Annotate with status + TW time + agent name
     TW = timezone(timedelta(hours=8))
     for m in page_members:
         m["_status"] = classify_member(m)
+        m["_agent"] = _resolve_agent(m, agent)
         if m.get("expire_at"):
             try:
                 exp_dt = datetime.fromisoformat(m["expire_at"].replace("Z", "+00:00"))

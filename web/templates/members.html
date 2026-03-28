@@ -26,6 +26,7 @@
             <th>推廣碼</th>
             <th>名稱</th>
             <th>GW帳號</th>
+            <th>上級代理</th>
             <th>狀態</th>
             <th>到期時間</th>
             <th>操作</th>
@@ -37,6 +38,7 @@
             <td><code>{{ m.referral_code }}</code></td>
             <td>{{ m.display_name or '-' }}</td>
             <td>{{ m.gw_account or '-' }}</td>
+            <td>{{ m._agent }}</td>
             <td>
                 {% if m._status == 'active' %}
                     <mark>活躍</mark>
@@ -72,7 +74,7 @@
         </tr>
         {% endfor %}
         {% if not members %}
-        <tr><td colspan="6" style="text-align:center;">無資料</td></tr>
+        <tr><td colspan="7" style="text-align:center;">無資料</td></tr>
         {% endif %}
     </tbody>
 </table>
