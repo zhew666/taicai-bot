@@ -34,7 +34,7 @@ def sb():
 
 import httpx as _httpx
 
-REGISTER_URL    = os.environ.get("REGISTER_URL", "gw55.GW1688.NET")
+REGISTER_URL    = os.environ.get("REGISTER_URL", "v088.gw1688.net")
 TENANT_ID       = os.environ.get("TENANT_ID", "")
 ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
 ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
@@ -455,7 +455,7 @@ def cmd_continue_info(user_id, token, member):
     if has_account:
         reply_text(token,
             f"前往{GW_NAME}儲值點數\n"
-            f"👉 gw55.GW1688.NET\n\n"
+            f"👉 {REGISTER_URL}\n\n"
             f"💰 點數可直接用來玩{GW_NAME}平台上的遊戲\n"
             f"儲值後即可同時開通使用權\n\n"
                         f"{GW_TIERS_TEXT}\n\n"
@@ -463,7 +463,7 @@ def cmd_continue_info(user_id, token, member):
     else:
         reply_text(token,
             f"前往{GW_NAME}註冊並儲值點數\n"
-            f"👉 gw55.GW1688.NET\n\n"
+            f"👉 {REGISTER_URL}\n\n"
             f"💰 點數可直接用來玩{GW_NAME}平台上的遊戲\n"
             f"儲值後即可同時開通使用權\n\n"
                         f"{GW_TIERS_TEXT}\n\n"
@@ -1229,7 +1229,7 @@ def cmd_gw_status(user_id, token, member):
     if not account:
         reply_text(token,
             f"尚未綁定{GW_NAME}帳號\n\n"
-            "請先前往註冊：gw55.GW1688.NET\n"
+            f"請先前往註冊：{REGISTER_URL}\n"
             "註冊後輸入「綁定帳號」綁定")
         return
     status = member.get("gw_status", "none")
@@ -1311,7 +1311,7 @@ def _do_gw_reject(text: str) -> str:
             "❌ 帳號驗證未通過\n"
             "━━━━━━━━━━━━━━\n"
             "請確認是否已完成註冊及儲值\n\n"
-            "註冊網址：gw55.GW1688.NET\n"
+            f"註冊網址：{REGISTER_URL}\n"
             "完成後請重新輸入「確認儲值」")
     except Exception:
         pass
@@ -1332,7 +1332,7 @@ def _do_gw_not_deposited(text: str) -> str:
             "📋 帳號已確認，但尚未儲值\n"
             "━━━━━━━━━━━━━━\n"
             f"請先前往{GW_NAME}儲值點數\n"
-            "👉 gw55.GW1688.NET\n\n"
+            f"👉 {REGISTER_URL}\n\n"
             f"{GW_TIERS_TEXT}\n\n"
             "儲值完成後回來輸入「確認儲值」")
     except Exception:
@@ -1377,7 +1377,7 @@ def _do_gw_ask_cs(text: str) -> str:
             "━━━━━━━━━━━━━━\n"
             f"您的帳號需要由{GW_NAME}客服協助處理\n"
             f"請直接聯繫{GW_NAME}線上客服\n\n"
-            "👉 gw55.GW1688.NET")
+            f"👉 {REGISTER_URL}")
     except Exception:
         pass
     return f"✅ 已通知 {account} 用戶聯繫{GW_NAME}客服"
