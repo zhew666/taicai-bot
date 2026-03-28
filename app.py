@@ -145,10 +145,7 @@ def _get_config(key: str, default: str = "") -> str:
     now = time.time()
     if now - _config_cache["ts"] > _CONFIG_TTL:
         try:
-            q = sb().table("system_config").select("key,value")
-            if TENANT_ID:
-                q = q.eq("tenant_id", TENANT_ID)
-            rows = q.execute().data or []
+            rows = sb().table("system_config").select("key,value").execute().data or []
             _config_cache["data"] = {r["key"]: r["value"] for r in rows}
             _config_cache["ts"] = now
         except Exception as e:
@@ -156,10 +153,7 @@ def _get_config(key: str, default: str = "") -> str:
     return _config_cache["data"].get(key, default)
 
 def _set_config(key: str, value: str):
-    data = {"key": key, "value": value}
-    if TENANT_ID:
-        data["tenant_id"] = TENANT_ID
-    sb().table("system_config").upsert(data, on_conflict="key,tenant_id").execute()
+    sb().table("system_config").upsert({"key": key, "value": value}).execute()
     _config_cache["data"][key] = value
     _config_cache["ts"] = time.time()
 
