@@ -379,7 +379,7 @@ def format_hand(row: dict) -> str:
     p_prefix = "🔵" if ev_p > ev_b else "  "
 
     return "\n".join([
-        f"{plat_tag}第{tid}廳{dealer_str} | 第{next_hand}局EV",
+        f"{plat_tag}第{tid}廳{dealer_str} | 第{next_hand}局預期收益",
         f"  {b_prefix}莊：{ev_str(row.get('ev_banker'))}  {p_prefix}閒：{ev_str(row.get('ev_player'))}",
         f"  超六：{ev_str(row.get('ev_super6'))}  對子：{ev_str(pair_ev)}",
         f"  和：{ev_str(row.get('ev_tie'))}",
