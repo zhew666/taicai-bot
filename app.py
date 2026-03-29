@@ -412,6 +412,7 @@ def get_or_create_member(user_id: str) -> dict:
         "referral_code": gen_referral_code(),
         "referred_by":   None,
         "warned_15min":  False,
+        "game":          DEFAULT_PLATFORM,
     }
     sb().table("members").insert(member).execute()
     return member
