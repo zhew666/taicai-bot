@@ -579,10 +579,7 @@ def cmd_airdrop(user_id, token, text, member):
         "━━━━━━━━━━━━━━",
         "",
         f"監控廳數：{active} 廳",
-        f"目前正收益：{pos} 廳",
         f"結束時間：{exp_tw}",
-        "",
-        "偵測到優勢選項立即推播通知",
     ]
     reply_text(token, "\n".join(lines))
 
