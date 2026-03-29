@@ -422,10 +422,10 @@ def activate_trial(user_id: str, member: dict) -> dict:
     if member.get("trial_start") or member.get("is_member"):
         return member
     now = datetime.now(timezone.utc)
-    updates = {
-        "trial_start": now.isoformat(),
-        "expire_at": (now + timedelta(hours=TRIAL_HOURS)).isoformat(),
-    }
+    updates = {"trial_start": now.isoformat()}
+    # 如果還沒有 expire_at（沒被推廣碼設過），才設試用時間
+    if not member.get("expire_at"):
+        updates["expire_at"] = (now + timedelta(hours=TRIAL_HOURS)).isoformat()
     sb().table("members").update(updates).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
     member.update(updates)
     return member
