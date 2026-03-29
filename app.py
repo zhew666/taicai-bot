@@ -2238,9 +2238,9 @@ def _poll_airdrop(latest_hands: dict):
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
                     next_hand = cur_hand + 1
                     air_plat = row.get("platform", "MT")
-                    lines = [f"📡 掃描到+EV訊號 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
+                    lines = [f"🪂 優勢選項 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
                     for label, val in sorted(pos, key=lambda x: -x[1]):
-                        lines.append(f"{label}EV：{val:+.4f} ✅")
+                        lines.append(f"{label}預期收益：{val:+.4f} ✅")
                     push_text(user_id, "\n".join(lines))
         except Exception as e:
             print(f"[Airdrop Error] {user_id}: {e}", flush=True)
