@@ -1269,10 +1269,14 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
     exp = m.get("expire_at")
     base = max(datetime.fromisoformat(exp.replace("Z", "+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
     new_exp = (base + timedelta(days=days)).isoformat()
-    sb().table("members").update({
+    updates = {
         "expire_at": new_exp,
-        "gw_status": "verified"
-    }).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
+        "gw_status": "verified",
+    }
+    # 確保 trial_start 有值，防止 activate_trial 誤觸
+    if not m.get("trial_start"):
+        updates["trial_start"] = datetime.now(timezone.utc).isoformat()
+    sb().table("members").update(updates).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
     try:
         sb().table("gw_deposits").insert({
             "tenant_id": TENANT_ID,

@@ -176,12 +176,56 @@ function renderNode(node, open) {
     html += '<strong>' + esc(node.display_name) + '</strong> ';
     if (node.agent_code !== 'ADMIN') html += '<code>' + esc(node.agent_code) + '</code> ';
     html += '<small>直推 ' + node.direct_members + ' 人</small>';
+    if (node.direct_members > 0) {
+        html += ' <button class="outline btn-sm" style="padding:1px 8px;font-size:0.7rem;margin-left:6px;" onclick="event.stopPropagation();toggleMembers(\'' + node.agent_id + '\', this)">展開會員</button>';
+    }
     html += '</summary>';
+    html += '<div id="members-' + node.agent_id + '" style="display:none;margin:0.5rem 0 0.5rem 1rem;"></div>';
     if (node.children && node.children.length > 0) {
         for (const child of node.children) html += renderNode(child, false);
     }
     html += '</details>';
     return html;
+}
+
+function toggleMembers(agentId, btn) {
+    const container = document.getElementById('members-' + agentId);
+    if (container.style.display !== 'none') {
+        container.style.display = 'none';
+        btn.textContent = '展開會員';
+        return;
+    }
+    btn.textContent = '載入中...';
+    btn.disabled = true;
+    fetch('/dashboard/api/admin/agents/' + agentId + '/members')
+    .then(r => r.json())
+    .then(members => {
+        if (!members.length) {
+            container.innerHTML = '<small>無會員</small>';
+        } else {
+            let t = '<table style="font-size:0.8rem;margin:0;"><thead><tr><th>推廣碼</th><th>名稱</th><th>GW帳號</th><th>狀態</th><th>到期</th></tr></thead><tbody>';
+            for (const m of members) {
+                let st = m.status;
+                if (st === 'active') st = '<mark>活躍</mark>';
+                else if (st === 'trial') st = '<span style="color:var(--pico-mark-background-color)">試用</span>';
+                else if (st === 'expired') st = '<span style="color:var(--pico-del-color)">已過期</span>';
+                else if (st === 'permanent') st = '<ins>永久</ins>';
+                else st = '新用戶';
+                t += '<tr><td><code>' + esc(m.referral_code) + '</code></td><td>' + esc(m.display_name || '-') + '</td><td>' + esc(m.gw_account || '-') + '</td><td>' + st + '</td><td>' + esc(m.expire_tw || '-') + '</td></tr>';
+            }
+            t += '</tbody></table>';
+            container.innerHTML = t;
+        }
+        container.style.display = 'block';
+        btn.textContent = '收合會員';
+        btn.disabled = false;
+    })
+    .catch(() => {
+        container.innerHTML = '<small style="color:var(--pico-del-color)">載入失敗</small>';
+        container.style.display = 'block';
+        btn.textContent = '展開會員';
+        btn.disabled = false;
+    });
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 </script>

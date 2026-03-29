@@ -344,6 +344,41 @@ def init_app(bp):
 
         return jsonify({"ok": True, "new_expire": new_exp.isoformat()})
 
+    # ── 代理下線會員明細 ──
+    @bp.route("/api/admin/agents/<agent_id>/members")
+    @admin_required
+    def api_agent_members(agent_id):
+        tid = g.agent["tenant_id"]
+        r = sb().table("members").select("*") \
+            .eq("referred_by", agent_id) \
+            .eq("tenant_id", tid) \
+            .order("expire_at", desc=True) \
+            .execute()
+        members = r.data or []
+
+        TW = timezone(timedelta(hours=8))
+        result = []
+        for m in members:
+            status = models.classify_member(m)
+            expire_tw = ""
+            if m.get("expire_at"):
+                try:
+                    exp_dt = datetime.fromisoformat(m["expire_at"].replace("Z", "+00:00"))
+                    expire_tw = exp_dt.astimezone(TW).strftime("%m/%d %H:%M")
+                except Exception:
+                    expire_tw = m["expire_at"][:16].replace("T", " ")
+            elif m.get("is_member"):
+                expire_tw = "永久"
+
+            result.append({
+                "referral_code": m.get("referral_code", ""),
+                "display_name": m.get("display_name", ""),
+                "gw_account": m.get("gw_account", ""),
+                "status": status,
+                "expire_tw": expire_tw,
+            })
+        return jsonify(result)
+
     # ── 數據看板（含今日新增） ──
     @bp.route("/api/dashboard-stats")
     @admin_required
