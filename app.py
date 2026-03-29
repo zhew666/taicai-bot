@@ -1508,79 +1508,6 @@ def cmd_enter_code(user_id, token, text, member):
     except Exception:
         pass
 
-def cmd_migrate(user_id, token, text, member):
-    """解析舊系統轉移訊息，自動設定用戶效期"""
-    import re
-    TW = timezone(timedelta(hours=8))
-    MIGRATE_MAX = datetime(2026, 6, 1, tzinfo=TW)
-
-    # 已轉移過
-    if member.get("referred_by") and str(member["referred_by"]).startswith("MIGRATE_"):
-        exp = member.get("expire_at")
-        if exp:
-            exp_str = datetime.fromisoformat(exp.replace("Z","+00:00")).astimezone(TW).strftime("%Y-%m-%d %H:%M")
-        else:
-            exp_str = "永久"
-        reply_text(token, f"你已完成轉移，目前效期：{exp_str}\n如有問題請聯繫管理員。")
-        return
-
-    # 解析效期
-    m_exp = re.search(r'效期\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})', text)
-    if not m_exp:
-        reply_text(token, "無法解析效期，請確認格式正確後重新貼上。")
-        return
-    try:
-        exp_tw = datetime.strptime(m_exp.group(1).strip(), "%Y-%m-%d %H:%M:%S").replace(tzinfo=TW)
-        exp_utc = exp_tw.astimezone(timezone.utc)
-    except ValueError:
-        reply_text(token, "日期格式錯誤，請確認後重新貼上。")
-        return
-
-    now = datetime.now(timezone.utc)
-    if exp_utc <= now:
-        reply_text(token, "此效期已過期，無法轉移。如有疑問請聯繫管理員。")
-        return
-    if exp_tw > MIGRATE_MAX:
-        reply_text(token,
-            "⚠️ 效期資料與舊系統紀錄不符\n\n"
-            "系統已記錄此次異常操作。\n"
-            "若持續提交不實資料，將取消使用資格。\n\n"
-            "如有疑問請聯繫管理員。")
-        return
-
-    # 解析推薦碼（舊渠道碼）
-    m_ref = re.search(r'推薦碼\s*(\S+)', text)
-    old_channel = m_ref.group(1).strip() if m_ref else "unknown"
-
-    # 寫入 DB
-    sb().table("members").update({
-        "expire_at": exp_utc.isoformat(),
-        "referred_by": f"MIGRATE_{old_channel}",
-    }).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
-
-    # 記錄轉移事件
-    try:
-        sb().table("referral_events").insert({
-            "tenant_id": TENANT_ID,
-            "referee_id": user_id,
-            "code_used": old_channel,
-            "code_type": "migration",
-            "event_type": "system_migrate",
-            "bonus_given_hours": 0,
-        }).execute()
-    except Exception as e:
-        print(f"[Migrate] 記錄事件失敗: {e}", flush=True)
-
-    exp_display = exp_tw.strftime("%Y-%m-%d %H:%M")
-    my_code = member.get("referral_code", "N/A")
-    reply_text(token,
-        f"✅ 轉移成功！\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"舊系統渠道：{old_channel}\n"
-        f"使用效期：{exp_display}\n"
-        f"你的新推薦碼：{my_code}\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"所有功能已開放，輸入「說明」查看指令。")
 
 def cmd_ev_intro(user_id, token):
     reply_text(token,
@@ -1929,10 +1856,6 @@ def handle_message(event):
     # 二段式 GW 帳號綁定（捕捉用戶回覆）
     if user_id in _pending_bind:
         if cmd_bind_gw_capture(user_id, token, text): return
-
-    # 舊系統轉移（偵測特徵格式）
-    if "效期" in text and "推薦碼" in text:
-        cmd_migrate(user_id, token, text, member); return
 
     # 維護模式：非管理員直接不回應（LINE 自動回覆處理）
     if is_maintenance() and not is_admin(user_id):
