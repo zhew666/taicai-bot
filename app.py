@@ -579,10 +579,10 @@ def cmd_airdrop(user_id, token, text, member):
         "━━━━━━━━━━━━━━",
         "",
         f"監控廳數：{active} 廳",
-        f"目前正EV：{pos} 廳",
+        f"目前正收益：{pos} 廳",
         f"結束時間：{exp_tw}",
         "",
-        "偵測到正EV時立即推播通知",
+        "偵測到優勢選項立即推播通知",
     ]
     reply_text(token, "\n".join(lines))
 
@@ -634,12 +634,12 @@ def cmd_guide(user_id, token, member):
     rec_str = f"  {rec}" if rec else ""
     if best_val > 0:
         msg = (f"🧙 {CMD_GUIDE} {plat_tag}第{t}廳{rec_str}\n"
-               f"第{next_hand}局 {label} EV={best_val:+.4f} ✅{d_str}\n"
-               f"正EV機會，可考慮出手")
+               f"第{next_hand}局 {label} 預期收益={best_val:+.4f} ✅{d_str}\n"
+               f"正預期收益，可考慮出手")
     else:
         msg = (f"🧙 {CMD_GUIDE} {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局{d_str}\n"
-               f"目前最佳選項：{label} EV={best_val:+.4f}\n"
+               f"目前最佳選項：{label} 預期收益：{best_val:+.4f}\n"
                f"靴牌進行中，持續監控")
     reply_text(token, msg)
 
@@ -1587,18 +1587,18 @@ def cmd_migrate(user_id, token, text, member):
 
 def cmd_ev_intro(user_id, token):
     reply_text(token,
-        "📊 什麼是 EV（期望值）？\n"
+        "📊 預期收益是什麼？\n"
         "━━━━━━━━━━━━━━\n\n"
-        "EV = Expected Value，\n"
+        "預期收益（EV = Expected Value），\n"
         "代表每一注的長期平均報酬。\n\n"
-        "EV > 0 → 這注長期有利可圖\n"
-        "EV < 0 → 這注長期會虧\n\n"
+        "預期收益 > 0 → 這注長期有利可圖\n"
+        "預期收益 < 0 → 這注長期會虧\n\n"
         "━━━━━━━━━━━━━━\n\n"
-        "百家樂通常莊閒 EV 都是負的，\n"
+        "百家樂通常莊閒預期收益都是負的，\n"
         "但隨著牌靴消耗，偶爾會出現\n"
-        "EV 翻正的瞬間 — 這就是出手時機。\n\n"
-        f"{BRAND_NAME}替你即時計算每張桌的 EV，\n"
-        "在正EV出現時第一時間通知你。\n\n"
+        "預期收益翻正的瞬間 — 這就是出手時機。\n\n"
+        f"{BRAND_NAME}替你即時計算每張桌的預期收益，\n"
+        "在正預期收益出現時第一時間通知你。\n\n"
         "━━━━━━━━━━━━━━\n\n"
         f"如果還是難以理解，直接輸入「{CMD_GUIDE}」\n"
         "系統會從 MT + DG 近 30 張桌中，\n"
@@ -1614,7 +1614,7 @@ def cmd_card_intro(user_id, token):
         "我們的系統：\n"
         "1️⃣ 即時記錄已出的每一張牌\n"
         "2️⃣ 根據剩餘牌組，窮舉所有可能\n"
-        "3️⃣ 計算莊/閒/和/超六/對子的EV\n\n"
+        "3️⃣ 計算莊/閒/和/超六/對子的預期收益\n\n"
         "━━━━━━━━━━━━━━\n\n"
         "跟 21 點算牌同理：\n"
         "已出的牌會影響後續的機率分佈。\n\n"
@@ -1633,24 +1633,24 @@ def cmd_feature_intro(user_id, token):
         "━━━━━━━━━━━━━━\n\n"
         "即時監控兩大場館百家樂：\n"
         "  MT 13 廳 ＋ DG 14 桌\n"
-        "8 副牌完整追蹤，計算 6 種注區 EV：\n"
+        "8 副牌完整追蹤，計算 6 種注區預期收益：\n"
         "莊 / 閒 / 和 / 超級六 / 閒對 / 莊對\n\n"
         f"▸ {CMD_GUIDE}\n"
         "  一鍵掃描全桌，推薦🔴莊或🔵閒。\n"
         f"  → 點選單「{CMD_GUIDE}」\n\n"
         f"▸ {CMD_AIRDROP}\n"
-        "  開啟後，正 EV 出現立刻推播通知你。\n"
+        "  開啟後，優勢選項出現立刻推播通知你。\n"
         f"  → 點選單「{CMD_AIRDROP}」\n\n"
         f"▸ {CMD_FOLLOW}\n"
-        f"  鎖定單桌，即時推送牌面、EV 與結果。\n"
+        f"  鎖定單桌，即時推送牌面、預期收益與結果。\n"
         f"  → MT：{CMD_FOLLOW} 3廳 / DG：{CMD_FOLLOW} 01\n\n"
         "▸ 切換場館\n"
         "  → 輸入「切換」即可在 MT / DG 間切換\n\n"
-        "▸ EV 與算牌原理\n"
+        "▸ 預期收益與算牌原理\n"
         "  → 輸入「EV介紹」或「算牌介紹」\n\n"
         "━━━━━━━━━━━━━━\n"
-        "💡 不知道 EV 是什麼也沒關係，\n"
-        f"先試「{CMD_GUIDE}」，看到正 EV 就是出手訊號。")
+        "💡 不知道預期收益是什麼也沒關係，\n"
+        f"先試「{CMD_GUIDE}」，看到正預期收益就是出手訊號。")
     # 第二則：關於我們 + 推薦機制
     push_text(user_id,
         f"關於{BRAND_NAME}\n"
@@ -1993,12 +1993,12 @@ def handle_message(event):
             "━━━━━━━━━━━━━━\n\n"
             f"📡 {CMD_AIRDROP} X\n"
             "→ 開啟全桌掃描 X 小時（1~3），\n"
-            "　任一桌出現正EV立刻通知\n\n"
+            "　偵測到優勢選項立即通知\n\n"
             f"🔗 {follow_hint}\n"
             "→ 鎖定某張桌即時跟蹤，\n"
-            "　每局推送牌面+EV\n\n"
+            "　每局推送牌面+預期收益\n\n"
             f"🧙 {CMD_GUIDE}\n"
-            "→ 一鍵查詢最高EV桌台\n\n"
+            "→ 一鍵查詢最佳桌台\n\n"
             "🛑 停止\n"
             f"→ 停止{CMD_FOLLOW}/{CMD_AIRDROP}\n\n"
             "🔄 切換\n"
@@ -2009,7 +2009,7 @@ def handle_message(event):
             f"🔗 綁定帳號 → 綁定{GW_NAME}帳號\n"
             "💰 確認儲值 → 儲值後通知客服確認\n"
             "📊 審核狀態 → 查詢帳號審核進度\n"
-            "📊 EV介紹 → EV期望值是什麼？\n"
+            "📊 EV介紹 → 預期收益是什麼？\n"
             "🃏 算牌介紹 → 我們怎麼計算？\n"
             "📖 介紹 → 帳號狀態與說明\n"
             "💬 聊天室 → 進群交流\n\n"
@@ -2210,9 +2210,9 @@ def _poll_airdrop(latest_hands: dict):
             if now > state["expire_at"]:
                 cnt = state.get("push_count", 0)
                 if cnt > 0:
-                    end_msg = f"🪂 {CMD_AIRDROP}監控已結束\n本次共捕獲 {cnt} 次 +EV\n\n輸入「{CMD_AIRDROP}」可再次啟動"
+                    end_msg = f"🪂 {CMD_AIRDROP}監控已結束\n本次共捕獲 {cnt} 次優勢訊號\n\n輸入「{CMD_AIRDROP}」可再次啟動"
                 else:
-                    end_msg = f"🪂 {CMD_AIRDROP}監控已結束\n本次監控期間未偵測到 +EV\n\n輸入「{CMD_AIRDROP}」可再次啟動"
+                    end_msg = f"🪂 {CMD_AIRDROP}監控已結束\n本次監控期間未偵測到優勢訊號\n\n輸入「{CMD_AIRDROP}」可再次啟動"
                 push_text(user_id, end_msg)
                 with airdrop_lock:
                     airdrop.pop(user_id, None)
