@@ -49,6 +49,7 @@ WARN_MINUTES   = 15
 CMD_GUIDE      = os.environ.get("CMD_GUIDE", "仙人指路")
 CMD_AIRDROP    = os.environ.get("CMD_AIRDROP", "空投")
 CMD_FOLLOW     = os.environ.get("CMD_FOLLOW", "跟隨")
+DEFAULT_PLATFORM = os.environ.get("DEFAULT_PLATFORM", "MT")
 _t1_amt = int(os.environ.get("GW_TIER_1_AMOUNT", "5000"))
 _t1_day = int(os.environ.get("GW_TIER_1_DAYS", "15"))
 _t2_amt = int(os.environ.get("GW_TIER_2_AMOUNT", "10000"))
@@ -292,7 +293,7 @@ def reply_text(token: str, text: str):
 
 def get_user_platform(member: dict) -> str:
     """取得用戶偏好平台"""
-    return member.get("game", "MT") or "MT"
+    return member.get("game", DEFAULT_PLATFORM) or DEFAULT_PLATFORM
 
 def _sexy_enabled() -> bool:
     return _get_config("sexy_enabled", "false") == "true"
@@ -2193,7 +2194,7 @@ def _poll_airdrop(latest_hands: dict):
     try:
         uids = list(users.keys())
         mr = sb().table("members").select("user_id,game").in_("user_id", uids).eq("tenant_id", TENANT_ID).execute()
-        _user_plats = {m["user_id"]: (m.get("game") or "MT") for m in (mr.data or [])}
+        _user_plats = {m["user_id"]: (m.get("game") or DEFAULT_PLATFORM) for m in (mr.data or [])}
     except Exception:
         pass
     for user_id, state in users.items():
