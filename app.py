@@ -692,20 +692,70 @@ def cmd_intro(user_id, token, member):
     mtype = get_member_type(user_id, member)
     exp_info = get_expire_str(member)
     plat = get_user_platform(member)
-    plat_str = f"DG" if plat == "DG" else "MT 13 廳"
+    plat_str = "DG" if plat == "DG" else "MT 13 廳"
+    has_account = member.get("gw_account")
+    is_paid = member.get("gw_status") == "verified" or member.get("is_member") is True
+    is_expired = False
+    exp = member.get("expire_at")
+    if exp:
+        try:
+            is_expired = datetime.now(timezone.utc) >= datetime.fromisoformat(exp.replace("Z", "+00:00"))
+        except Exception:
+            is_expired = True
+
+    # 狀態引導
+    if not member.get("referred_by"):
+        # 新用戶：沒有推薦碼
+        guide = ("━━━━━━━━━━━━━━\n"
+                 "👋 請先輸入推薦碼開始使用\n"
+                 "直接輸入推薦碼即可，例如：BOSS888\n"
+                 "━━━━━━━━━━━━━━")
+    elif not has_account:
+        # 有推薦碼但沒綁帳號
+        guide = (f"━━━━━━━━━━━━━━\n"
+                 f"💰 升級正式會員（3 步驟）\n"
+                 f"1️⃣ 前往{GW_NAME}註冊並儲值\n"
+                 f"   👉 {REGISTER_URL}\n"
+                 f"   {GW_TIERS_TEXT}\n"
+                 f"2️⃣ 回來輸入「綁定帳號」\n"
+                 f"3️⃣ 輸入「確認儲值」通知客服\n"
+                 f"━━━━━━━━━━━━━━")
+    elif not is_paid:
+        # 有帳號但沒儲值過
+        guide = (f"━━━━━━━━━━━━━━\n"
+                 f"💰 下一步：前往{GW_NAME}儲值\n"
+                 f"👉 {REGISTER_URL}\n"
+                 f"{GW_TIERS_TEXT}\n\n"
+                 f"儲值完成後輸入「確認儲值」\n"
+                 f"客服確認後自動開通\n"
+                 f"━━━━━━━━━━━━━━")
+    elif is_expired:
+        # 正式會員已到期
+        guide = (f"━━━━━━━━━━━━━━\n"
+                 f"💰 儲值延長使用期限\n"
+                 f"👉 {REGISTER_URL}\n"
+                 f"{GW_TIERS_TEXT}\n\n"
+                 f"儲值完成後輸入「確認儲值」即可延長\n"
+                 f"━━━━━━━━━━━━━━")
+    else:
+        # 正式會員使用中
+        guide = (f"━━━━━━━━━━━━━━\n"
+                 f"💰 到期前可提前儲值續費\n"
+                 f"👉 {REGISTER_URL}\n"
+                 f"{GW_TIERS_TEXT}\n"
+                 f"━━━━━━━━━━━━━━")
 
     reply_text(token,
         f"📋 帳號狀態：\n"
         f"身份：{mtype}\n"
         f"期限：{exp_info}\n"
         f"📡 目前場館：{plat_str}\n\n"
+        f"{guide}\n\n"
         f"🔗 你的專屬推薦碼：{code}\n"
         f"・推薦好友 → 雙方各 +6 小時\n"
         f"・好友首次儲值 → 你 +48 小時\n\n"
-        f"儲值註冊：{REGISTER_URL}\n\n"
         f"💡 輸入「指令」查詢更多功能\n"
-        f"💡 輸入「切換」可切換 MT/DG\n"
-        f"💡 輸入「繼續」了解方案")
+        f"💡 輸入「切換」可切換 MT/DG")
 
 def get_agent(user_id: str):
     """查詢 agents 表，回傳 agent row 或 None"""
@@ -1183,27 +1233,17 @@ def cmd_bind_gw_capture(user_id, token, text):
         return True
     sb().table("members").update({
         "gw_account": account,
-        "gw_status": "pending"
     }).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
     reply_text(token,
-        f"✅ 已記錄您的{GW_NAME}帳號：{account}\n"
+        f"✅ 已記錄您的{GW_NAME}帳號：{account}\n\n"
         f"━━━━━━━━━━━━━━\n"
-        f"已通知客服進行審核\n"
-        f"審核通過後將自動延長使用期限\n\n"
-                f"{GW_TIERS_TEXT}\n\n"
-        f"請耐心等候審核結果\n"
+        f"💰 下一步：前往{GW_NAME}儲值\n"
+        f"👉 {REGISTER_URL}\n"
+        f"{GW_TIERS_TEXT}\n\n"
+        f"儲值完成後回來輸入「確認儲值」\n"
+        f"客服確認後自動開通\n"
+        f"━━━━━━━━━━━━━━\n"
         f"填錯了？→ 輸入「更換帳號」")
-    # 通知 GW 客服審核（Telegram）
-    agent_name = get_agent_name(user_id)
-    tg_notify_gw(
-        f"📋 新帳號待審核\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"{GW_NAME}帳號：{account}\n"
-        f"上級代理：{agent_name}\n\n"
-        f"請確認註冊及儲值後回覆：\n"
-        f"  確認 {account} <金額>\n\n"
-        f"未通過請回覆：\n"
-        f"  未通過 {account}")
     return True
 
 def cmd_gw_status(user_id, token, member):
@@ -1319,9 +1359,9 @@ def _do_gw_reject(text: str) -> str:
     sb().table("members").update({"gw_status": "rejected"}).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
     try:
         push_text(target_uid,
-            "❌ 帳號驗證未通過\n"
+            "📋 帳號查詢結果\n"
             "━━━━━━━━━━━━━━\n"
-            "請確認是否已完成註冊及儲值\n\n"
+            "驗證未通過，請確認是否已完成註冊及儲值\n\n"
             f"註冊網址：{REGISTER_URL}\n"
             "完成後請重新輸入「確認儲值」")
     except Exception:
@@ -1340,10 +1380,11 @@ def _do_gw_not_deposited(text: str) -> str:
     target_uid = r.data[0]["user_id"]
     try:
         push_text(target_uid,
-            "📋 帳號已確認，但尚未儲值\n"
+            "📋 儲值查詢結果\n"
             "━━━━━━━━━━━━━━\n"
-            f"請先前往{GW_NAME}儲值點數\n"
-            f"👉 {REGISTER_URL}\n\n"
+            "近 48 小時查無儲值紀錄\n"
+            f"請先前往{GW_NAME}完成儲值\n\n"
+            f"👉 {REGISTER_URL}\n"
             f"{GW_TIERS_TEXT}\n\n"
             "儲值完成後回來輸入「確認儲值」")
     except Exception:
@@ -1363,11 +1404,10 @@ def _do_gw_not_found(text: str) -> str:
     sb().table("members").update({"gw_status": "rejected"}).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
     try:
         push_text(target_uid,
-            "❌ 查無此帳號\n"
+            "📋 帳號查詢結果\n"
             "━━━━━━━━━━━━━━\n"
-            f"{GW_NAME}查無您綁定的帳號\n"
-            "請確認帳號是否正確\n\n"
-            "如需重新綁定，請輸入「綁定帳號」")
+            "查無此帳號，請確認帳號是否正確\n\n"
+            "填錯了？→ 輸入「更換帳號」")
     except Exception:
         pass
     return f"✅ 已通知 {account} 用戶查無此帳號"
@@ -1471,7 +1511,16 @@ def cmd_enter_code(user_id, token, text, member):
             label = f"+{days} 天"
         else:
             label = f"+{bonus_hours} 小時"
-        reply_text(token, f"✅ 推廣碼兌換成功！使用期限 {label} 🎁"); return
+        reply_text(token,
+            f"✅ 推廣碼兌換成功！使用期限 {label} 🎁\n\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"💰 升級正式會員（3 步驟）\n"
+            f"1️⃣ 前往{GW_NAME}註冊並儲值\n"
+            f"   👉 {REGISTER_URL}\n"
+            f"   {GW_TIERS_TEXT}\n"
+            f"2️⃣ 回來輸入「綁定帳號」\n"
+            f"3️⃣ 輸入「確認儲值」通知客服\n"
+            f"━━━━━━━━━━━━━━"); return
 
     # 2. 查推薦碼（REF-XXXX，會員互推）
     code_upper = code_clean.upper()
@@ -1510,7 +1559,16 @@ def cmd_enter_code(user_id, token, text, member):
         "event_type": "referral_used",
         "bonus_given_hours": 6,
     }).execute()
-    reply_text(token, "✅ 推薦碼輸入成功！使用期限 +6 小時 🎁")
+    reply_text(token,
+        f"✅ 推薦碼輸入成功！使用期限 +6 小時 🎁\n\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"💰 升級正式會員（3 步驟）\n"
+        f"1️⃣ 前往{GW_NAME}註冊並儲值\n"
+        f"   👉 {REGISTER_URL}\n"
+        f"   {GW_TIERS_TEXT}\n"
+        f"2️⃣ 回來輸入「綁定帳號」\n"
+        f"3️⃣ 輸入「確認儲值」通知客服\n"
+        f"━━━━━━━━━━━━━━")
     try:
         push_text(referrer["user_id"], "🎉 有好友使用你的推薦碼，使用期限 +6 小時！")
     except Exception:
@@ -1656,7 +1714,7 @@ def telegram_webhook():
                 "未通過 <帳號>\n→ 驗證未通過\n\n"
                 f"請詢問 <帳號>\n→ 請用戶聯繫{GW_NAME}客服\n\n"
                 "回覆 <帳號> <訊息>\n→ 自訂回覆內容\n\n"
-                "範例：確認 abc123 5000")
+                "範例：確認 abc123 3000")
     if text.startswith("確認") or text.startswith("确认"):
         result = _do_gw_verify(text, verified_by=f"tg_{chat_id}")
         tg_send(chat_id, result)
