@@ -2250,16 +2250,15 @@ def _poll_airdrop(latest_hands: dict):
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
                     next_hand = cur_hand + 1
                     air_plat = row.get("platform", "MT")
-                    # 莊閒推薦標記
                     sorted_pos = sorted(pos, key=lambda x: -x[1])
-                    best_label = sorted_pos[0][0] if sorted_pos else ""
-                    rec_mark = ""
-                    if best_label == "莊":
-                        rec_mark = "  🔴莊"
-                    elif best_label == "閒":
-                        rec_mark = "  🔵閒"
                     best_ev_label, best_ev_val = sorted_pos[0]
-                    lines = [f"🪂 優勢選項 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局{rec_mark}", f"預期收益：{best_ev_val:+.4f} ✅"]
+                    if best_ev_label == "莊":
+                        bet_str = "  🔴莊"
+                    elif best_ev_label == "閒":
+                        bet_str = "  🔵閒"
+                    else:
+                        bet_str = f"  {best_ev_label}"
+                    lines = [f"🪂 優勢選項 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局{bet_str}", f"預期收益：{best_ev_val:+.4f} ✅"]
                     push_text(user_id, "\n".join(lines))
         except Exception as e:
             print(f"[Airdrop Error] {user_id}: {e}", flush=True)
