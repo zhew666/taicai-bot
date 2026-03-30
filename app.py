@@ -72,9 +72,9 @@ def _refresh_dg_sexy():
         _dg_sexy_cache["ts"] = now
     except Exception as e:
         print(f"[DG Sexy] 刷新失敗: {e}", flush=True)
-EV_FIELDS    = ["ev_banker", "ev_player", "ev_super6", "ev_pair_p", "ev_pair_b", "ev_tie"]
+EV_FIELDS    = ["ev_banker", "ev_player", "ev_super6", "ev_pair_p", "ev_tie"]
 EV_LABELS    = {"ev_banker": "莊", "ev_player": "閒", "ev_tie": "和",
-                "ev_super6": "超六", "ev_pair_p": "閒對", "ev_pair_b": "莊對"}
+                "ev_super6": "超六", "ev_pair_p": "對子"}
 
 # ── 記憶體狀態 ─────────────────────────────────────────────
 following    = {}   # user_id → {table_id, last_shoe, last_hand}
