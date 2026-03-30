@@ -368,11 +368,12 @@ def format_hand(row: dict) -> str:
     b_prefix = "🔴" if ev_b > ev_p else "  "
     p_prefix = "🔵" if ev_p > ev_b else "  "
 
+    dealer_tail = f"  荷官：{dealer}" if dealer and dealer != "未知" else ""
     return "\n".join([
-        f"{plat_tag}第{tid}廳{dealer_str} | 第{next_hand}局預期收益",
+        f"{plat_tag}第{tid}廳 | 第{next_hand}局預期收益",
         f"  {b_prefix}莊：{ev_str(row.get('ev_banker'))}  {p_prefix}閒：{ev_str(row.get('ev_player'))}",
         f"  超六：{ev_str(row.get('ev_super6'))}  對子：{ev_str(pair_ev)}",
-        f"  和：{ev_str(row.get('ev_tie'))}",
+        f"  和：{ev_str(row.get('ev_tie'))}{dealer_tail}",
         f"──────────",
         f"靴{shoe} | 第{hand}局結果 {result}",
         f"閒牌：{p}",
@@ -619,12 +620,14 @@ def cmd_guide(user_id, token, member):
     rec_str = f"  {rec}" if rec else ""
     if best_val > 0:
         msg = (f"🧙 {CMD_GUIDE} {plat_tag}第{t}廳{rec_str}\n"
-               f"第{next_hand}局 {label} 預期收益={best_val:+.4f} ✅{d_str}\n"
+               f"第{next_hand}局{d_str}\n"
+               f"{label} 預期收益={best_val:+.4f} ✅\n"
                f"正預期收益，可考慮出手")
     else:
         msg = (f"🧙 {CMD_GUIDE} {plat_tag}第{t}廳{rec_str}\n"
                f"第{next_hand}局{d_str}\n"
-               f"目前最佳選項：{label} 預期收益：{best_val:+.4f}\n"
+               f"目前最佳選項：{label}\n"
+               f"預期收益：{best_val:+.4f}\n"
                f"靴牌進行中，持續監控")
     reply_text(token, msg)
 
@@ -2247,9 +2250,17 @@ def _poll_airdrop(latest_hands: dict):
                     d_str = f" 荷官：{dealer}" if dealer and dealer != "未知" else ""
                     next_hand = cur_hand + 1
                     air_plat = row.get("platform", "MT")
-                    lines = [f"🪂 優勢選項 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局"]
-                    for label, val in sorted(pos, key=lambda x: -x[1]):
-                        lines.append(f"{label}預期收益：{val:+.4f} ✅")
+                    # 莊閒推薦標記
+                    sorted_pos = sorted(pos, key=lambda x: -x[1])
+                    best_label = sorted_pos[0][0] if sorted_pos else ""
+                    rec_mark = ""
+                    if best_label == "莊":
+                        rec_mark = "  🔴莊"
+                    elif best_label == "閒":
+                        rec_mark = "  🔵閒"
+                    lines = [f"🪂 優勢選項 [{air_plat}] 第{tnum(tid)}廳{d_str}", f"第{next_hand}局{rec_mark}"]
+                    for label, val in sorted_pos:
+                        lines.append(f"預期收益：{val:+.4f} ✅")
                     push_text(user_id, "\n".join(lines))
         except Exception as e:
             print(f"[Airdrop Error] {user_id}: {e}", flush=True)
