@@ -1515,13 +1515,24 @@ def cmd_enter_code(user_id, token, text, member):
         reply_text(token,
             f"✅ 推廣碼兌換成功！使用期限 {label} 🎁\n\n"
             f"━━━━━━━━━━━━━━\n"
-            f"💰 升級正式會員（3 步驟）\n"
+            f"🃏 功能說明\n\n"
+            f"📡 {CMD_AIRDROP} X\n"
+            f"→ 開啟全桌掃描 X 小時（1~3），\n"
+            f"　偵測到優勢選項立即通知\n\n"
+            f"🔗 {CMD_FOLLOW} X廳\n"
+            f"→ 鎖定某張桌即時跟蹤，\n"
+            f"　每局推送牌面+預期收益\n\n"
+            f"🧙 {CMD_GUIDE}\n"
+            f"→ 一鍵查詢最佳桌台\n\n"
+            f"🛑 停止\n"
+            f"→ 停止鎖定/掃描\n\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"💰 升級正式會員\n"
             f"1️⃣ 前往{GW_NAME}註冊並儲值\n"
             f"   👉 {REGISTER_URL}\n"
             f"   {GW_TIERS_TEXT}\n"
             f"2️⃣ 回來輸入「綁定帳號」\n"
-            f"3️⃣ 輸入「確認儲值」通知客服\n"
-            f"━━━━━━━━━━━━━━"); return
+            f"3️⃣ 輸入「確認儲值」通知客服"); return
 
     # 2. 查推薦碼（REF-XXXX，會員互推）
     code_upper = code_clean.upper()
@@ -1563,13 +1574,24 @@ def cmd_enter_code(user_id, token, text, member):
     reply_text(token,
         f"✅ 推薦碼輸入成功！使用期限 +6 小時 🎁\n\n"
         f"━━━━━━━━━━━━━━\n"
-        f"💰 升級正式會員（3 步驟）\n"
+        f"🃏 功能說明\n\n"
+        f"📡 {CMD_AIRDROP} X\n"
+        f"→ 開啟全桌掃描 X 小時（1~3），\n"
+        f"　偵測到優勢選項立即通知\n\n"
+        f"🔗 {CMD_FOLLOW} X廳\n"
+        f"→ 鎖定某張桌即時跟蹤，\n"
+        f"　每局推送牌面+預期收益\n\n"
+        f"🧙 {CMD_GUIDE}\n"
+        f"→ 一鍵查詢最佳桌台\n\n"
+        f"🛑 停止\n"
+        f"→ 停止鎖定/掃描\n\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"💰 升級正式會員\n"
         f"1️⃣ 前往{GW_NAME}註冊並儲值\n"
         f"   👉 {REGISTER_URL}\n"
         f"   {GW_TIERS_TEXT}\n"
         f"2️⃣ 回來輸入「綁定帳號」\n"
-        f"3️⃣ 輸入「確認儲值」通知客服\n"
-        f"━━━━━━━━━━━━━━")
+        f"3️⃣ 輸入「確認儲值」通知客服")
     try:
         push_text(referrer["user_id"], "🎉 有好友使用你的推薦碼，使用期限 +6 小時！")
     except Exception:
