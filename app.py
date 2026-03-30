@@ -479,8 +479,7 @@ def cmd_confirm_deposit(user_id, token, member):
     reply_text(token,
         f"📋 帳號：{account}\n"
         f"已通知客服確認您的最新儲值\n"
-        f"確認後將自動延長使用期限\n\n"
-                f"{GW_TIERS_TEXT}")
+        f"確認後將自動延長使用期限")
     # 通知 GW 客服（Telegram）
     agent_name = get_agent_name(user_id)
     tg_notify_gw(
