@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 百家之眼 LINE Bot Server
-功能：跟隨系統 / 空投系統 / 仙人指路 / 會員系統（試用+推薦碼）
+功能：跟隨系統 / 空投系統 / 仙人指路 / 會員系統（推薦碼+儲值）
 """
 import os, threading, time, random, string, re
 from datetime import datetime, timezone, timedelta
@@ -44,20 +44,15 @@ TG_GW_CHAT_IDS  = [x.strip() for x in os.environ.get("TELEGRAM_GW_CHAT_IDS", "")
 BRAND_NAME      = os.environ.get("BRAND_NAME", "百家之眼")
 GW_NAME         = os.environ.get("GW_NAME", "金盈匯")
 CHAT_URL        = os.environ.get("CHAT_URL", "")
-TRIAL_HOURS    = int(os.environ.get("TRIAL_HOURS", "1"))
 WARN_MINUTES   = 15
 CMD_GUIDE      = os.environ.get("CMD_GUIDE", "仙人指路")
 CMD_AIRDROP    = os.environ.get("CMD_AIRDROP", "空投")
 CMD_FOLLOW     = os.environ.get("CMD_FOLLOW", "跟隨")
 DEFAULT_PLATFORM = os.environ.get("DEFAULT_PLATFORM", "MT")
-_t1_amt = int(os.environ.get("GW_TIER_1_AMOUNT", "5000"))
-_t1_day = int(os.environ.get("GW_TIER_1_DAYS", "15"))
-_t2_amt = int(os.environ.get("GW_TIER_2_AMOUNT", "10000"))
-_t2_day = int(os.environ.get("GW_TIER_2_DAYS", "31"))
-GW_TIERS       = {_t1_amt: _t1_day, _t2_amt: _t2_day}
-GW_TIERS_TEXT  = "\n".join(f"💡 儲值 {amt:,} 點 → {days} 天" for amt, days in sorted(GW_TIERS.items()))
+GW_AMOUNT      = int(os.environ.get("GW_AMOUNT", "3000"))
+GW_HOURS       = int(os.environ.get("GW_HOURS", "48"))
+GW_TIERS_TEXT  = f"💡 儲值 {GW_AMOUNT:,} 點 → {GW_HOURS} 小時"
 ALL_TABLES_MT = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A", "TEST01"]
-ALL_TABLES    = ALL_TABLES_MT  # 向下相容
 
 # DG 標準桌映射：01~07 → DGR1~DGR7
 DG_STD_MAP  = {f"DGR{i}": f"{i:02d}" for i in range(1, 8)}
@@ -91,7 +86,6 @@ _pending_extend = {}  # agent_user_id → {target_ref, days, expire_ts}
 _pending_bind   = {}  # user_id → {"state": "awaiting_account", "expire_ts": ...}
 _pending_follow = {}  # user_id → {"expire_ts": ...}  二段式跟隨
 _poll_stats  = {"count": 0, "airdrop_triggers": 0, "last_trigger": None}  # poll 健康監控
-_push_lock   = threading.Lock()
 # ── 數據新鮮度監控（Render 端獨立告警）──
 WATCHDOG_TG_TOKEN   = os.environ.get("WATCHDOG_TG_TOKEN", "")
 ADMIN_TG_CHAT_ID    = os.environ.get("ADMIN_TG_CHAT_ID", "")
@@ -127,7 +121,7 @@ def _find_top_agent(user_id, depth=0):
         r = sb().table("agents").select("display_name,custom_ref_code").eq("agent_id", user_id).eq("tenant_id", TENANT_ID).limit(1).execute()
         if r.data:
             a = r.data[0]
-            return a.get("custom_ref_code") or a.get("display_name") or f"{BRAND_NAME}官方"
+            return a.get("display_name") or a.get("custom_ref_code") or f"{BRAND_NAME}官方"
     except Exception:
         pass
     # 不是代理，查這個人的上線
@@ -316,10 +310,6 @@ def get_platform_tables(platform: str, admin: bool = False) -> list:
             return []
     return ALL_TABLES_MT
 
-def get_latest_hand(table_id: str):
-    r = sb().table("live_tables").select("*").eq("table_id", table_id).execute()
-    return r.data[0] if r.data else None
-
 def get_all_latest_hands(platform: str = None) -> dict:
     """從 live_tables 取得每桌最新狀態，可選平台過濾"""
     q = sb().table("live_tables").select("*")
@@ -417,39 +407,33 @@ def get_or_create_member(user_id: str) -> dict:
     sb().table("members").insert(member).execute()
     return member
 
-def activate_trial(user_id: str, member: dict) -> dict:
-    """首次使用功能時才啟動試用倒數"""
-    if member.get("trial_start") or member.get("is_member"):
-        return member
-    now = datetime.now(timezone.utc)
-    updates = {"trial_start": now.isoformat()}
-    # 如果還沒有 expire_at（沒被推廣碼設過），才設試用時間
-    if not member.get("expire_at"):
-        updates["expire_at"] = (now + timedelta(hours=TRIAL_HOURS)).isoformat()
-    sb().table("members").update(updates).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
-    member.update(updates)
-    return member
-
 def is_allowed(member: dict) -> bool:
     if member.get("is_member"):
         return True
-    if not member.get("trial_start"):
-        return True  # 尚未啟動試用，允許使用（會在功能內啟動）
     exp = member.get("expire_at")
     if not exp:
         return False
     exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
     return datetime.now(timezone.utc) < exp_dt
 
+def has_referral(member: dict) -> bool:
+    """是否已輸入過推薦碼"""
+    return bool(member.get("referred_by"))
+
+def no_code_reply(token: str):
+    reply_text(token,
+        "請先輸入推薦碼才能使用\n"
+        "直接輸入推薦碼即可，例如：BOSS888")
+
 def expired_reply(token: str, member: dict):
     code = member.get("referral_code", "N/A")
     reply_text(token,
-        f"⏰ 試用已結束\n\n"
+        f"⏰ 使用期限已到期\n\n"
         f"想繼續使用嗎？\n"
-        f"回覆「繼續」即可了解方案\n\n"
+        f"回覆「繼續」即可了解儲值方案\n\n"
         f"━━━━━━━━━━━━━━\n"
         f"📋 你的推薦碼：{code}\n"
-        f"分享給好友，每人可獲得額外試用時間")
+        f"推薦好友：雙方各 +6 小時")
 
 def cmd_continue_info(user_id, token, member):
     """用戶回覆「繼續」，推送 GW 儲值引導"""
@@ -508,7 +492,8 @@ def cmd_confirm_deposit(user_id, token, member):
 
 # ── 指令處理 ──────────────────────────────────────────────
 def cmd_follow(user_id, token, text, member):
-    member = activate_trial(user_id, member)
+    if not has_referral(member):
+        no_code_reply(token); return
     if not is_allowed(member):
         expired_reply(token, member); return
     plat = get_user_platform(member)
@@ -544,7 +529,8 @@ def cmd_follow(user_id, token, text, member):
     reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳...")
 
 def cmd_airdrop(user_id, token, text, member):
-    member = activate_trial(user_id, member)
+    if not has_referral(member):
+        no_code_reply(token); return
     if not is_allowed(member):
         expired_reply(token, member); return
 
@@ -554,7 +540,6 @@ def cmd_airdrop(user_id, token, text, member):
             airdrop.pop(user_id)
             reply_text(token, f"📡 {CMD_AIRDROP}已關閉"); return
 
-    import re
     m = re.search(r'(\d+)', text)
     hours = max(1, min(3, int(m.group(1)))) if m else 1
     exp = datetime.now(timezone.utc) + timedelta(hours=hours)
@@ -592,7 +577,8 @@ def cmd_stop(user_id, token):
     reply_text(token, f"已停止：{'、'.join(removed)}" if removed else "目前沒有進行中的監控")
 
 def cmd_guide(user_id, token, member):
-    member = activate_trial(user_id, member)
+    if not has_referral(member):
+        no_code_reply(token); return
     if not is_allowed(member):
         expired_reply(token, member); return
     plat = get_user_platform(member)
@@ -649,12 +635,12 @@ def cmd_my_code(user_id, token, member):
     elif member.get("is_member"):
         exp_str = "永久"
     else:
-        exp_str = f"尚未啟動（試用 {TRIAL_HOURS} 小時）"
+        exp_str = "尚未使用（請輸入推薦碼）"
     reply_text(token,
         f"📋 你的推薦碼：{code}\n"
         f"使用期限：{exp_str}\n\n"
-        f"推薦好友使用推薦碼：每人 +1 天\n"
-        f"好友完成正式註冊：+7 天")
+        f"推薦好友：雙方各 +6 小時\n"
+        f"好友首次儲值：你 +48 小時")
 
 def get_member_type(user_id: str, member: dict) -> str:
     """回傳會員類型標籤"""
@@ -663,20 +649,18 @@ def get_member_type(user_id: str, member: dict) -> str:
     agent = get_agent(user_id)
     if agent:
         return "💼 代理"
-    if member.get("is_member"):
+    is_paid = member.get("gw_status") == "verified" or member.get("is_member") is True
+    if is_paid and not member.get("expire_at"):
         return "✅ 正式帳號"
     exp = member.get("expire_at", "")
     if exp:
         exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-        remaining = exp_dt - datetime.now(timezone.utc)
-        if remaining.total_seconds() > 86400:  # > 24 小時 = 正式
-            return "✅ 正式帳號"
-        if remaining.total_seconds() > 0:
-            return "⏳ 試用會員"
-        return "⏰ 試用已結束"
-    if not member.get("trial_start"):
-        return "🆕 尚未啟動試用"
-    return "⏰ 試用已結束"
+        if datetime.now(timezone.utc) < exp_dt:
+            return "✅ 正式帳號" if is_paid else "⏳ 試用會員"
+        return "⏰ 使用期限已到期"
+    if not member.get("referred_by"):
+        return "🆕 請先輸入推薦碼"
+    return "⏰ 使用期限已到期"
 
 def get_expire_str(member: dict) -> str:
     """回傳到期時間描述"""
@@ -684,8 +668,8 @@ def get_expire_str(member: dict) -> str:
         return "永久使用"
     exp = member.get("expire_at", "")
     if not exp:
-        if not member.get("trial_start"):
-            return f"輸入「{CMD_GUIDE}」開始試用"
+        if not member.get("referred_by"):
+            return "輸入推薦碼開始使用"
         return "已結束"
     exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
     exp_str = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
@@ -716,9 +700,9 @@ def cmd_intro(user_id, token, member):
         f"期限：{exp_info}\n"
         f"📡 目前場館：{plat_str}\n\n"
         f"🔗 你的專屬推薦碼：{code}\n"
-        f"・每邀請 1 人試用 → +1 天\n"
-        f"・好友完成正式註冊 → +7 天\n\n"
-        f"正式註冊：{REGISTER_URL}\n\n"
+        f"・推薦好友 → 雙方各 +6 小時\n"
+        f"・好友首次儲值 → 你 +48 小時\n\n"
+        f"儲值註冊：{REGISTER_URL}\n\n"
         f"💡 輸入「指令」查詢更多功能\n"
         f"💡 輸入「切換」可切換 MT/DG\n"
         f"💡 輸入「繼續」了解方案")
@@ -797,7 +781,7 @@ def cmd_admin_activate(user_id, token, text):
     except Exception as e:
         print(f"[Admin] 通知被開通者失敗: {e}", flush=True)
 
-    # 推薦人 +7 天
+    # 推薦人 +48h
     referrer_uid = target_member.get("referred_by")
     if referrer_uid:
         try:
@@ -805,7 +789,7 @@ def cmd_admin_activate(user_id, token, text):
             if rr.data:
                 exp = rr.data[0].get("expire_at")
                 base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
-                new_exp = (base + timedelta(days=7)).isoformat()
+                new_exp = (base + timedelta(hours=48)).isoformat()
                 sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer_uid).eq("tenant_id", TENANT_ID).execute()
                 # 記錄推薦人獎勵事件
                 try:
@@ -816,12 +800,12 @@ def cmd_admin_activate(user_id, token, text):
                         "code_used": target_member.get("referral_code", ""),
                         "code_type": "referral",
                         "event_type": "referral_bonus",
-                        "bonus_given_hours": 168,
+                        "bonus_given_hours": 48,
                     }).execute()
                 except Exception as e:
                     print(f"[Admin] 記錄推薦獎勵事件失敗: {e}", flush=True)
-                push_text(referrer_uid, "🎉 你推薦的好友完成正式註冊，使用期限 +7 天！")
-                reply_text(token, f"✅ 推薦人 {referrer_uid} 已 +7 天")
+                push_text(referrer_uid, "🎉 你推薦的好友完成正式註冊，使用期限 +48 小時！")
+                reply_text(token, f"✅ 推薦人 {referrer_uid} 已 +48 小時")
         except Exception as e:
             print(f"[Admin] 推薦人加天失敗: {e}", flush=True)
 
@@ -1249,30 +1233,25 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
         amount = int(parts[2])
     except ValueError:
         return "金額請輸入數字"
-    # 用 GW_TIERS 判斷天數（允許 ±10% 彈性）
-    days = None
-    for tier_amount in sorted(GW_TIERS.keys(), reverse=True):
-        if amount >= int(tier_amount * 0.9):
-            days = GW_TIERS[tier_amount]
-            break
-    if days is None:
-        min_tier = min(GW_TIERS.keys())
-        return f"金額不足\n最低 {min_tier:,} 點 → {GW_TIERS[min_tier]} 天"
+    # 單一方案：金額 ±10% 彈性
+    if amount < int(GW_AMOUNT * 0.9):
+        return f"金額不足\n最低 {GW_AMOUNT:,} 點 → {GW_HOURS} 小時"
+    hours = GW_HOURS
     r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
     m = r.data[0]
     target_uid = m["user_id"]
     exp = m.get("expire_at")
-    base = max(datetime.fromisoformat(exp.replace("Z", "+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
-    new_exp = (base + timedelta(days=days)).isoformat()
+    now = datetime.now(timezone.utc)
+    base = max(datetime.fromisoformat(exp.replace("Z", "+00:00")), now) if exp else now
+    new_exp = (base + timedelta(hours=hours)).isoformat()
     updates = {
         "expire_at": new_exp,
         "gw_status": "verified",
     }
-    # 確保 trial_start 有值，防止 activate_trial 誤觸
     if not m.get("trial_start"):
-        updates["trial_start"] = datetime.now(timezone.utc).isoformat()
+        updates["trial_start"] = now.isoformat()
     sb().table("members").update(updates).eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
     try:
         sb().table("gw_deposits").insert({
@@ -1280,23 +1259,52 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
             "user_id": target_uid,
             "gw_account": account,
             "amount": amount,
-            "days_granted": days,
+            "hours_granted": hours,
             "verified_by": verified_by,
         }).execute()
     except Exception as e:
         print(f"[GW] 記錄儲值失敗: {e}", flush=True)
+    # 首次儲值：推薦者 +48h
+    referrer_uid = m.get("referred_by")
+    if referrer_uid:
+        try:
+            already = sb().table("referral_events").select("id") \
+                .eq("referee_id", target_uid).eq("event_type", "first_deposit_bonus") \
+                .eq("tenant_id", TENANT_ID).limit(1).execute()
+            if not already.data:
+                rr = sb().table("members").select("expire_at").eq("user_id", referrer_uid).eq("tenant_id", TENANT_ID).execute()
+                if rr.data:
+                    ref_exp = rr.data[0].get("expire_at")
+                    ref_base = max(datetime.fromisoformat(ref_exp.replace("Z","+00:00")), now) if ref_exp else now
+                    new_ref_exp = (ref_base + timedelta(hours=48)).isoformat()
+                    sb().table("members").update({"expire_at": new_ref_exp}).eq("user_id", referrer_uid).eq("tenant_id", TENANT_ID).execute()
+                    sb().table("referral_events").insert({
+                        "tenant_id": TENANT_ID,
+                        "referrer_id": referrer_uid,
+                        "referee_id": target_uid,
+                        "code_used": m.get("referral_code", ""),
+                        "code_type": "referral",
+                        "event_type": "first_deposit_bonus",
+                        "bonus_given_hours": 48,
+                    }).execute()
+                    try:
+                        push_text(referrer_uid, "🎉 你推薦的好友完成首次儲值，使用期限 +48 小時！")
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[GW] 首儲推薦獎勵失敗: {e}", flush=True)
     new_exp_tw = datetime.fromisoformat(new_exp).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
     try:
         push_text(target_uid,
             f"🎉 帳號驗證通過！\n"
             f"━━━━━━━━━━━━━━\n"
             f"儲值點數：{amount:,}\n"
-            f"使用期限延長 {days} 天\n"
+            f"使用期限延長 {hours} 小時\n"
             f"新到期時間：{new_exp_tw}\n\n"
             f"感謝使用{BRAND_NAME}！")
     except Exception:
         pass
-    return f"✅ 已確認 {account}\n儲值 {amount} 點 → 延長 {days} 天\n新到期：{new_exp_tw}"
+    return f"✅ 已確認 {account}\n儲值 {amount} 點 → 延長 {hours} 小時\n新到期：{new_exp_tw}"
 
 def _do_gw_reject(text: str) -> str:
     """純邏輯：拒絕，回傳結果文字。"""
@@ -1424,9 +1432,10 @@ def _has_used(user_id: str, code_type: str) -> bool:
     return bool(r.data)
 
 def cmd_enter_code(user_id, token, text, member):
-    import re
     # 清理輸入：去掉前綴、空格、冒號，取得純碼
-    raw = text.replace("好友推薦碼", "").replace("好友推荐码", "").replace("推薦碼", "").replace("推荐码", "").strip().strip(":").strip()
+    for prefix in ("好友推薦碼","好友推荐码","輸入推薦碼","输入推荐码","我的推薦碼是","推薦碼","推荐码","推廣碼","推广码"):
+        text = text.replace(prefix, "")
+    raw = text.strip().strip(":").strip()
     code_clean = re.sub(r'^REF-', '', raw, flags=re.IGNORECASE).strip()
 
     # 1. 查代理碼（custom_ref_code）
@@ -1477,34 +1486,33 @@ def cmd_enter_code(user_id, token, text, member):
     referrer = r_check.data[0]
     if referrer["user_id"] == user_id:
         reply_text(token, "不能輸入自己的推薦碼"); return
-    # 更新被推薦人 + 試用延長到 6 小時
-    trial_start = member.get("trial_start")
-    if trial_start:
-        ts = datetime.fromisoformat(trial_start.replace("Z", "+00:00"))
-        new_user_exp = (ts + timedelta(hours=6)).isoformat()
-    else:
-        new_user_exp = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+    # 被推薦人 +6h
+    now = datetime.now(timezone.utc)
+    exp = member.get("expire_at")
+    user_base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), now) if exp else now
+    new_user_exp = (user_base + timedelta(hours=6)).isoformat()
     sb().table("members").update({
         "referred_by": referrer["user_id"],
-        "expire_at": new_user_exp
+        "expire_at": new_user_exp,
+        "trial_start": now.isoformat() if not member.get("trial_start") else member["trial_start"],
     }).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
-    # 推薦人 +1 天
-    exp = referrer["expire_at"]
-    base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
-    new_exp = (base + timedelta(days=1)).isoformat()
-    sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer["user_id"]).eq("tenant_id", TENANT_ID).execute()
+    # 推薦人 +6h
+    ref_exp = referrer["expire_at"]
+    ref_base = max(datetime.fromisoformat(ref_exp.replace("Z","+00:00")), now) if ref_exp else now
+    new_ref_exp = (ref_base + timedelta(hours=6)).isoformat()
+    sb().table("members").update({"expire_at": new_ref_exp}).eq("user_id", referrer["user_id"]).eq("tenant_id", TENANT_ID).execute()
     sb().table("referral_events").insert({
         "tenant_id": TENANT_ID,
         "referrer_id": referrer["user_id"],
         "referee_id": user_id,
         "code_used": code,
         "code_type": "referral",
-        "event_type": "trial_started",
-        "bonus_given_hours": 24,
+        "event_type": "referral_used",
+        "bonus_given_hours": 6,
     }).execute()
-    reply_text(token, "✅ 推薦碼輸入成功！試用時間已延長至 6 小時 🎁")
+    reply_text(token, "✅ 推薦碼輸入成功！使用期限 +6 小時 🎁")
     try:
-        push_text(referrer["user_id"], "🎉 有好友使用你的推薦碼，使用期限 +1 天！")
+        push_text(referrer["user_id"], "🎉 有好友使用你的推薦碼，使用期限 +6 小時！")
     except Exception:
         pass
 
@@ -1590,8 +1598,8 @@ def cmd_feature_intro(user_id, token):
         "━━━━━━━━━━━━━━\n"
         "🎁 推薦好友計畫\n\n"
         "把你的專屬推薦碼分享給朋友：\n"
-        "  ✦ 每推薦 1 人加入 → 你得 1 天使用權\n"
-        "  ✦ 好友正式註冊 → 你再得 7 天\n\n"
+        "  ✦ 推薦好友 → 雙方各得 6 小時\n"
+        "  ✦ 好友首次儲值 → 你再得 48 小時\n\n"
         "→ 輸入「我的推薦碼」查看你的推薦碼\n"
         "→ 輸入「指令」查看所有指令")
 
@@ -1843,8 +1851,9 @@ def handle_message(event):
         pf = _pending_follow.get(user_id, {})
         if time.time() < pf.get("expire_ts", 0):
             # 檢查是否為其他有效指令，如果是就取消等待、直接走正常流程
-            _is_cmd = any(text.startswith(k) for k in (CMD_AIRDROP,"空投","開始空投","全局監控","掃描桌檯","掃描桌台","停止","結束","stop")) or \
+            _is_cmd = any(text.startswith(k) for k in (CMD_AIRDROP,"空投","開始空投","全局監控","掃描桌檯","掃描桌台","停止","結束","stop","推薦碼","推廣碼","好友推薦碼")) or \
                       CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text or "開始報牌" in text or \
+                      re.match(r'^[A-Za-z0-9\-]{3,20}$', text) or \
                       text in ("介紹","說明","指令","help","切換","切換平台","繼續","綁定帳號","確認儲值","審核狀態",
                                "功能介紹","EV介紹","算牌介紹","我的推薦碼","推薦碼","聊天室")
             if not _is_cmd:
@@ -1949,10 +1958,10 @@ def handle_message(event):
         cmd_stop(user_id, token)
     elif CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text or "開始報牌" in text:
         cmd_guide(user_id, token, member)
-    elif text.startswith("好友推薦碼") or text.startswith("好友推荐码"):
+    elif any(text.startswith(k) for k in ("好友推薦碼","好友推荐码","推薦碼","推荐码","推廣碼","推广码","輸入推薦碼","输入推荐码","我的推薦碼是")):
         cmd_enter_code(user_id, token, text, member)
-    elif re.match(r'^[A-Za-z0-9\-]{4,10}$', text):
-        # 4~10 碼英數字（含 REF-XXXX），自動當推薦碼/活動碼處理
+    elif re.match(r'^[A-Za-z0-9\-]{3,20}$', text) and text.lower() not in ("stop","help","test","menu"):
+        # 3~20 碼英數字（含 REF-XXXX、代理碼），自動當推薦碼處理
         cmd_enter_code(user_id, token, text, member)
 
 # ── 背景輪詢 ──────────────────────────────────────────────
@@ -2182,11 +2191,11 @@ def _poll_trial_warnings():
                 code = m.get("referral_code", "N/A")
                 try:
                     push_text(m["user_id"],
-                        f"⏰ 試用即將結束（剩餘 15 分鐘）\n\n"
+                        f"⏰ 使用期限還有 15 分鐘到期\n\n"
                         f"想繼續使用嗎？\n"
-                        f"回覆「繼續」即可了解方案\n\n"
+                        f"回覆「繼續」即可了解儲值方案\n\n"
                         f"📋 你的推薦碼：{code}\n"
-                        f"分享給好友也能獲得額外時間")
+                        f"推薦好友：雙方各 +6 小時")
                     sb().table("members").update({"warned_15min": True}).eq("user_id", m["user_id"]).eq("tenant_id", TENANT_ID).execute()
                 except Exception as e:
                     print(f"[Trial Warn Error] {m['user_id']}: {e}", flush=True)

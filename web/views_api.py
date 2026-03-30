@@ -166,7 +166,7 @@ def init_app(bp):
             return jsonify({"error": "此推廣碼已被使用"}), 409
 
         # Check not conflict with REF-XXXX
-        existing2 = sb().table("members").select("user_id").eq("referral_code", code).execute()
+        existing2 = sb().table("members").select("user_id").eq("referral_code", code).eq("tenant_id", g.agent["tenant_id"]).execute()
         if existing2.data:
             return jsonify({"error": "此推廣碼與系統碼衝突"}), 409
 

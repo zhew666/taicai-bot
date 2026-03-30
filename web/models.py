@@ -18,7 +18,7 @@ def _find_top_agent_local(user_id, tenant_id, depth=0):
         r = sb().table("agents").select("display_name,custom_ref_code").eq("agent_id", user_id).eq("tenant_id", tenant_id).limit(1).execute()
         if r.data:
             a = r.data[0]
-            return a.get("custom_ref_code") or a.get("display_name") or f"{BRAND_NAME}官方"
+            return a.get("display_name") or a.get("custom_ref_code") or f"{BRAND_NAME}官方"
     except Exception:
         pass
     try:
@@ -66,26 +66,21 @@ def get_downline_members(agent, agent_ids=None):
 def classify_member(m):
     """判斷會員狀態：permanent / active / trial / expired / new"""
     now = datetime.now(timezone.utc)
-    if m.get("is_member") and not m.get("expire_at"):
+    is_paid = m.get("gw_status") == "verified" or m.get("is_member") is True
+    if is_paid and not m.get("expire_at"):
         return "permanent"
     if m.get("expire_at"):
         try:
             exp = datetime.fromisoformat(m["expire_at"].replace("Z", "+00:00"))
             if exp > now:
-                # 有 trial_start 但沒被開通過 → 還是試用；否則是正式
-                if not m.get("is_member") and m.get("trial_start"):
-                    ts = datetime.fromisoformat(m["trial_start"].replace("Z", "+00:00"))
-                    # 試用期 = trial_start 後 24 小時內
-                    if (exp - ts).total_seconds() <= 86400:
-                        return "trial"
-                return "active"
+                return "active" if is_paid else "trial"
             else:
                 return "expired"
         except Exception:
             return "expired"
-    if m.get("trial_start"):
-        return "expired"
-    return "new"
+    if not m.get("referred_by"):
+        return "new"
+    return "expired"
 
 def get_fission_stats(agent):
     """裂變統計"""
