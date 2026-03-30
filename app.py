@@ -1335,7 +1335,6 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
         push_text(target_uid,
             f"🎉 帳號驗證通過！\n"
             f"━━━━━━━━━━━━━━\n"
-            f"儲值點數：{amount:,}\n"
             f"使用期限延長 {hours} 小時\n"
             f"新到期時間：{new_exp_tw}\n\n"
             f"感謝使用{BRAND_NAME}！")
