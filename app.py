@@ -421,9 +421,7 @@ def has_referral(member: dict) -> bool:
     return bool(member.get("referred_by"))
 
 def no_code_reply(token: str):
-    reply_text(token,
-        "請先輸入推薦碼才能使用\n"
-        "直接輸入推薦碼即可，例如：BOSS888")
+    reply_text(token, "請先輸入推薦碼才能使用")
 
 def expired_reply(token: str, member: dict):
     code = member.get("referral_code", "N/A")
@@ -707,8 +705,7 @@ def cmd_intro(user_id, token, member):
     if not member.get("referred_by"):
         # 新用戶：沒有推薦碼
         guide = ("━━━━━━━━━━━━━━\n"
-                 "👋 請先輸入推薦碼開始使用\n"
-                 "直接輸入推薦碼即可，例如：BOSS888\n"
+                 "👋 請先輸入推薦碼才能使用\n"
                  "━━━━━━━━━━━━━━")
     elif not has_account:
         # 有推薦碼但沒綁帳號
