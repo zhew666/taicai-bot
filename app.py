@@ -417,8 +417,13 @@ def is_allowed(member: dict) -> bool:
     return datetime.now(timezone.utc) < exp_dt
 
 def has_referral(member: dict) -> bool:
-    """是否已輸入過推薦碼"""
-    return bool(member.get("referred_by"))
+    """是否已輸入過推薦碼，或是既有用戶"""
+    if member.get("referred_by"):
+        return True
+    # 既有用戶（有任何使用紀錄）不需要推薦碼
+    if member.get("trial_start") or member.get("expire_at") or member.get("is_member") or member.get("gw_status"):
+        return True
+    return False
 
 def no_code_reply(token: str):
     reply_text(token, "請先輸入推薦碼才能使用")
