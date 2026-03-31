@@ -422,7 +422,9 @@ def has_referral(member: dict) -> bool:
     if member.get("referred_by"):
         return True
     # 既有用戶（有任何使用紀錄）不需要推薦碼
-    if member.get("trial_start") or member.get("expire_at") or member.get("is_member") or member.get("gw_status"):
+    if member.get("trial_start") or member.get("expire_at") or member.get("is_member") is True:
+        return True
+    if member.get("gw_status") and member["gw_status"] not in ("none", ""):
         return True
     return False
 
