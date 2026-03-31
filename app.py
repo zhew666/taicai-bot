@@ -2032,8 +2032,8 @@ def handle_message(event):
     if not check_cooldown(user_id):
         return
 
-    if any(text.startswith(k) for k in (CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控")):
-        body = re.sub(r'^(' + '|'.join([CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控"]) + ')', '', text).strip()
+    if any(text.startswith(k) for k in (CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控","鎖定桌檯","鎖定桌台")):
+        body = re.sub(r'^(' + '|'.join([CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控","鎖定桌檯","鎖定桌台"]) + ')', '', text).strip()
         cmd_follow(user_id, token, "跟隨" + body, member)
     elif text.startswith(CMD_AIRDROP) or text.startswith("空投") or text.startswith("開始空投") or text.startswith("全局監控") or text.startswith("掃描桌檯") or text.startswith("掃描桌台"):
         cmd_airdrop(user_id, token, text, member)
