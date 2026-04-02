@@ -647,7 +647,7 @@ def cmd_my_code(user_id, token, member):
         f"📋 你的推薦碼：{code}\n"
         f"使用期限：{exp_str}\n\n"
         f"推薦好友：雙方各 +1 小時\n"
-        f"好友首次儲值：你 +48 小時")
+        f"好友首次儲值：你 +24 小時")
 
 def get_member_type(user_id: str, member: dict) -> str:
     """回傳會員類型標籤"""
@@ -759,7 +759,7 @@ def cmd_intro(user_id, token, member):
         f"{guide}\n\n"
         f"🔗 你的專屬推薦碼：{code}\n"
         f"・推薦好友 → 雙方各 +1 小時\n"
-        f"・好友首次儲值 → 你 +48 小時\n\n"
+        f"・好友首次儲值 → 你 +24 小時\n\n"
         f"💡 輸入「指令」查詢更多功能\n"
         f"💡 輸入「切換」可切換 MT/DG")
 
@@ -837,7 +837,7 @@ def cmd_admin_activate(user_id, token, text):
     except Exception as e:
         print(f"[Admin] 通知被開通者失敗: {e}", flush=True)
 
-    # 推薦人 +48h
+    # 推薦人 +24h
     referrer_uid = target_member.get("referred_by")
     if referrer_uid:
         try:
@@ -845,7 +845,7 @@ def cmd_admin_activate(user_id, token, text):
             if rr.data:
                 exp = rr.data[0].get("expire_at")
                 base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), datetime.now(timezone.utc)) if exp else datetime.now(timezone.utc)
-                new_exp = (base + timedelta(hours=48)).isoformat()
+                new_exp = (base + timedelta(hours=24)).isoformat()
                 sb().table("members").update({"expire_at": new_exp}).eq("user_id", referrer_uid).eq("tenant_id", TENANT_ID).execute()
                 # 記錄推薦人獎勵事件
                 try:
@@ -856,12 +856,12 @@ def cmd_admin_activate(user_id, token, text):
                         "code_used": target_member.get("referral_code", ""),
                         "code_type": "referral",
                         "event_type": "referral_bonus",
-                        "bonus_given_hours": 48,
+                        "bonus_given_hours": 24,
                     }).execute()
                 except Exception as e:
                     print(f"[Admin] 記錄推薦獎勵事件失敗: {e}", flush=True)
-                push_text(referrer_uid, "🎉 你推薦的好友完成正式註冊，使用期限 +48 小時！")
-                reply_text(token, f"✅ 推薦人 {referrer_uid} 已 +48 小時")
+                push_text(referrer_uid, "🎉 你推薦的好友完成正式註冊，使用期限 +24 小時！")
+                reply_text(token, f"✅ 推薦人 {referrer_uid} 已 +24 小時")
         except Exception as e:
             print(f"[Admin] 推薦人加天失敗: {e}", flush=True)
 
@@ -1310,7 +1310,7 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
         }).execute()
     except Exception as e:
         print(f"[GW] 記錄儲值失敗: {e}", flush=True)
-    # 首次儲值：推薦者 +48h
+    # 首次儲值：推薦者 +24h
     referrer_uid = m.get("referred_by")
     if referrer_uid:
         try:
@@ -1322,7 +1322,7 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
                 if rr.data:
                     ref_exp = rr.data[0].get("expire_at")
                     ref_base = max(datetime.fromisoformat(ref_exp.replace("Z","+00:00")), now) if ref_exp else now
-                    new_ref_exp = (ref_base + timedelta(hours=48)).isoformat()
+                    new_ref_exp = (ref_base + timedelta(hours=24)).isoformat()
                     sb().table("members").update({"expire_at": new_ref_exp}).eq("user_id", referrer_uid).eq("tenant_id", TENANT_ID).execute()
                     sb().table("referral_events").insert({
                         "tenant_id": TENANT_ID,
@@ -1331,10 +1331,10 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
                         "code_used": m.get("referral_code", ""),
                         "code_type": "referral",
                         "event_type": "first_deposit_bonus",
-                        "bonus_given_hours": 48,
+                        "bonus_given_hours": 24,
                     }).execute()
                     try:
-                        push_text(referrer_uid, "🎉 你推薦的好友完成首次儲值，使用期限 +48 小時！")
+                        push_text(referrer_uid, "🎉 你推薦的好友完成首次儲值，使用期限 +24 小時！")
                     except Exception:
                         pass
         except Exception as e:
@@ -1686,7 +1686,7 @@ def cmd_feature_intro(user_id, token):
         "🎁 推薦好友計畫\n\n"
         "把你的專屬推薦碼分享給朋友：\n"
         "  ✦ 推薦好友 → 雙方各得 1 小時\n"
-        "  ✦ 好友首次儲值 → 你再得 48 小時\n\n"
+        "  ✦ 好友首次儲值 → 你再得 24 小時\n\n"
         "→ 輸入「我的推薦碼」查看你的推薦碼\n"
         "→ 輸入「指令」查看所有指令")
 
