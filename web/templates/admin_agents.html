@@ -6,22 +6,6 @@
     <p>共 {{ agents|length }} 個代理</p>
 </hgroup>
 
-<!-- 推薦獎勵設定 -->
-<article>
-    <header>推薦獎勵設定</header>
-    <div class="grid">
-        <label>
-            會員互推獎勵（小時）
-            <input type="number" id="referralHours" value="6" min="1" max="720" style="width:100px;">
-            <small>REF-XXXX 互推，雙方各得此時數</small>
-        </label>
-        <label>
-            <br>
-            <button class="outline btn-sm" onclick="saveReferralHours()">儲存</button>
-            <span id="referralMsg"></span>
-        </label>
-    </div>
-</article>
 
 <!-- 新增代理 -->
 <article>
@@ -109,24 +93,6 @@
 
 {% block scripts %}
 <script>
-// 載入推薦獎勵設定
-fetch('/dashboard/api/admin/config')
-.then(r => r.json())
-.then(config => {
-    if (config.referral_hours) document.getElementById('referralHours').value = config.referral_hours;
-});
-
-function saveReferralHours() {
-    const hours = parseInt(document.getElementById('referralHours').value);
-    fetch('/dashboard/api/admin/config', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({referral_hours: String(hours)})
-    }).then(r => r.json()).then(data => {
-        if (data.ok) document.getElementById('referralMsg').innerHTML = '<small style="color:var(--pico-ins-color)">已儲存</small>';
-        else document.getElementById('referralMsg').innerHTML = '<small style="color:var(--pico-del-color)">失敗</small>';
-    });
-}
 
 function createAgent(e) {
     e.preventDefault();

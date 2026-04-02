@@ -439,7 +439,7 @@ def expired_reply(token: str, member: dict):
         f"回覆「繼續」即可了解儲值方案\n\n"
         f"━━━━━━━━━━━━━━\n"
         f"📋 你的推薦碼：{code}\n"
-        f"推薦好友：雙方各 +6 小時")
+        f"推薦好友：雙方各 +1 小時")
 
 def cmd_continue_info(user_id, token, member):
     """用戶回覆「繼續」，推送 GW 儲值引導"""
@@ -646,7 +646,7 @@ def cmd_my_code(user_id, token, member):
     reply_text(token,
         f"📋 你的推薦碼：{code}\n"
         f"使用期限：{exp_str}\n\n"
-        f"推薦好友：雙方各 +6 小時\n"
+        f"推薦好友：雙方各 +1 小時\n"
         f"好友首次儲值：你 +48 小時")
 
 def get_member_type(user_id: str, member: dict) -> str:
@@ -758,7 +758,7 @@ def cmd_intro(user_id, token, member):
         f"📡 目前場館：{plat_str}\n\n"
         f"{guide}\n\n"
         f"🔗 你的專屬推薦碼：{code}\n"
-        f"・推薦好友 → 雙方各 +6 小時\n"
+        f"・推薦好友 → 雙方各 +1 小時\n"
         f"・好友首次儲值 → 你 +48 小時\n\n"
         f"💡 輸入「指令」查詢更多功能\n"
         f"💡 輸入「切換」可切換 MT/DG")
@@ -1551,8 +1551,8 @@ def cmd_enter_code(user_id, token, text, member):
     referrer = r_check.data[0]
     if referrer["user_id"] == user_id:
         reply_text(token, "不能輸入自己的推薦碼"); return
-    # 讀取推薦獎勵時數（system_config，預設 6）
-    ref_hours = int(_get_config("referral_hours", "6"))
+    # 讀取推薦獎勵時數（system_config，預設 1）
+    ref_hours = int(_get_config("referral_hours", "1"))
     # 被推薦人 +ref_hours
     now = datetime.now(timezone.utc)
     exp = member.get("expire_at")
@@ -1685,7 +1685,7 @@ def cmd_feature_intro(user_id, token):
         "━━━━━━━━━━━━━━\n"
         "🎁 推薦好友計畫\n\n"
         "把你的專屬推薦碼分享給朋友：\n"
-        "  ✦ 推薦好友 → 雙方各得 6 小時\n"
+        "  ✦ 推薦好友 → 雙方各得 1 小時\n"
         "  ✦ 好友首次儲值 → 你再得 48 小時\n\n"
         "→ 輸入「我的推薦碼」查看你的推薦碼\n"
         "→ 輸入「指令」查看所有指令")
@@ -2288,7 +2288,7 @@ def _poll_trial_warnings():
                         f"想繼續使用嗎？\n"
                         f"回覆「繼續」即可了解儲值方案\n\n"
                         f"📋 你的推薦碼：{code}\n"
-                        f"推薦好友：雙方各 +6 小時")
+                        f"推薦好友：雙方各 +1 小時")
                     sb().table("members").update({"warned_15min": True}).eq("user_id", m["user_id"]).eq("tenant_id", TENANT_ID).execute()
                 except Exception as e:
                     print(f"[Trial Warn Error] {m['user_id']}: {e}", flush=True)
