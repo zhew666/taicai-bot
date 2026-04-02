@@ -24,7 +24,7 @@
         <div class="grid">
             <label>
                 贈送時間（小時）
-                <input type="number" id="newGrant" value="6" min="1" max="8760">
+                <input type="number" id="newGrant" value="1" min="1" max="8760">
             </label>
             <label>
                 登入密碼
@@ -60,10 +60,7 @@
                 <input type="text" value="{{ a.custom_ref_code or '' }}"
                        id="code-{{ a.agent_id }}" style="width:90px;padding:2px 4px;font-size:0.85rem;">
             </td>
-            <td>
-                <input type="number" value="{{ a.grant_hours or 6 }}"
-                       id="grant-{{ a.agent_id }}" style="width:55px;padding:2px 4px;font-size:0.85rem;" min="1">
-            </td>
+            <td>{{ a.grant_hours or 1 }}</td>
             <td>{{ a._downline_count or 0 }}</td>
             <td>
                 {% if a.is_admin %}<ins>管理員</ins>
@@ -123,7 +120,6 @@ function saveAgent(id) {
         body: JSON.stringify({
             display_name: document.getElementById('name-' + id).value.trim(),
             custom_ref_code: document.getElementById('code-' + id).value.trim(),
-            grant_hours: parseInt(document.getElementById('grant-' + id).value),
         })
     }).then(r => r.json()).then(data => {
         if (data.ok) alert('已儲存');
@@ -199,7 +195,7 @@ function toggleMembers(agentId, btn) {
             for (const m of members) {
                 let st = m.status;
                 if (st === 'active') st = '<mark>活躍</mark>';
-                else if (st === 'trial') st = '<span style="color:var(--pico-mark-background-color)">試用</span>';
+                else if (st === 'trial') st = '<span style="color:var(--pico-mark-background-color)">體驗中</span>';
                 else if (st === 'expired') st = '<span style="color:var(--pico-del-color)">已過期</span>';
                 else if (st === 'permanent') st = '<ins>永久</ins>';
                 else st = '新用戶';

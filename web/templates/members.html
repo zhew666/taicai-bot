@@ -12,7 +12,7 @@
     <select name="status">
         <option value="">全部狀態</option>
         <option value="active" {% if request.args.get('status')=='active' %}selected{% endif %}>活躍</option>
-        <option value="trial" {% if request.args.get('status')=='trial' %}selected{% endif %}>試用</option>
+        <option value="trial" {% if request.args.get('status')=='trial' %}selected{% endif %}>體驗中</option>
         <option value="expired" {% if request.args.get('status')=='expired' %}selected{% endif %}>已過期</option>
         <option value="new" {% if request.args.get('status')=='new' %}selected{% endif %}>新用戶</option>
     </select>
@@ -43,7 +43,7 @@
                 {% if m._status == 'active' %}
                     <mark>活躍</mark>
                 {% elif m._status == 'trial' %}
-                    <span style="color: var(--pico-mark-background-color);">試用</span>
+                    <span style="color: var(--pico-mark-background-color);">體驗中</span>
                 {% elif m._status == 'expired' %}
                     <span style="color: var(--pico-del-color);">已過期</span>
                 {% elif m._status == 'permanent' %}
@@ -67,7 +67,7 @@
                 <button class="outline btn-sm secondary" onclick="setExpire('{{ m.referral_code }}', '{{ m.expire_at[:16] if m.expire_at else '' }}')">修改</button>
                 {% if is_admin %}
                 <button class="outline btn-sm contrast" onclick="activateMember('{{ m.referral_code }}')">開通</button>
-                <button class="outline btn-sm" style="color:var(--pico-mark-background-color);border-color:var(--pico-mark-background-color);" onclick="resetTrial('{{ m.referral_code }}')">重置試用</button>
+                <button class="outline btn-sm" style="color:var(--pico-mark-background-color);border-color:var(--pico-mark-background-color);" onclick="resetTrial('{{ m.referral_code }}')">贈送時數</button>
                 {% endif %}
                 {% endif %}
             </td>
@@ -102,7 +102,7 @@
         <p>會員：<strong id="extendTarget"></strong></p>
         <label>
             天數
-            <input type="number" id="extendDays" min="1" max="{{ agent.max_extend_days or 31 }}" value="7">
+            <input type="number" id="extendDays" min="1" value="7">
         </label>
         <footer>
             <button class="secondary" onclick="document.getElementById('extendDialog').close()">取消</button>
@@ -130,11 +130,11 @@
 <!-- Reset Trial Modal -->
 <dialog id="resetTrialDialog">
     <article>
-        <header>重置試用</header>
+        <header>贈送時數</header>
         <p>會員：<strong id="resetTrialTarget"></strong></p>
         <label>
-            試用時數
-            <input type="number" id="resetTrialHours" min="1" max="24" value="2">
+            時數
+            <input type="number" id="resetTrialHours" min="1" value="1">
         </label>
         <footer>
             <button class="secondary" onclick="document.getElementById('resetTrialDialog').close()">取消</button>
@@ -201,7 +201,7 @@ function submitResetTrial() {
     .then(data => {
         document.getElementById('resetTrialDialog').close();
         if (data.ok) {
-            alert(`已重置為 ${hours} 小時試用`);
+            alert(`已贈送 ${hours} 小時`);
             location.reload();
         } else {
             alert(data.error || '操作失敗');

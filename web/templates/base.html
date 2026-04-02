@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}百家之眼{% endblock %} - 代理後台</title>
+    <title>{% block title %}{{ brand_name }}{% endblock %} - 代理後台</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <link rel="stylesheet" href="{{ url_for('dashboard.static', filename='style.css') }}">
 </head>
@@ -11,7 +11,7 @@
     {% if agent %}
     <nav class="container-fluid">
         <ul>
-            <li><strong>百家之眼</strong></li>
+            <li><strong>{{ brand_name }}</strong></li>
         </ul>
         <ul>
             <li><a href="{{ url_for('dashboard.index') }}" {% if request.path == '/dashboard/' %}class="active"{% endif %}>儀表板</a></li>
@@ -33,7 +33,7 @@
     </main>
 
     <footer class="container">
-        <small>百家之眼 Agent Dashboard v1.0</small>
+        <small>{{ brand_name }} Agent Dashboard</small>
     </footer>
 
     {% block scripts %}{% endblock %}

@@ -31,8 +31,8 @@ def init_app(bp):
     @login_required
     def api_extend_member(ref_code):
         days = request.json.get("days", 0) if request.is_json else int(request.form.get("days", 0))
-        if days <= 0 or days > g.agent.get("max_extend_days", 31):
-            return jsonify({"error": f"天數須在 1~{g.agent.get('max_extend_days', 31)} 之間"}), 400
+        if days <= 0:
+            return jsonify({"error": "天數須大於 0"}), 400
 
         # Find target member
         ref_upper = ref_code.strip().upper()
@@ -231,8 +231,7 @@ def init_app(bp):
         data = request.json or {}
         display_name = data.get("display_name", "").strip()
         custom_code = data.get("custom_ref_code", "").strip().upper()
-        grant_hours = data.get("grant_hours", 6)
-        max_extend = data.get("max_extend_days", 31)
+        grant_hours = data.get("grant_hours", 1)
         password = data.get("password", "123456")
 
         if not display_name:
@@ -259,7 +258,6 @@ def init_app(bp):
             "parent_agent_id": parent_id,
             "name": display_name,
             "display_name": display_name,
-            "max_extend_days": max_extend,
             "is_active": True,
             "tenant_id": g.agent["tenant_id"],
             "path": new_path,
@@ -286,13 +284,6 @@ def init_app(bp):
                 if existing.data:
                     return jsonify({"error": "推廣碼已被使用"}), 409
             updates["custom_ref_code"] = code or None
-        if "grant_hours" in data:
-            h = int(data["grant_hours"])
-            if h < 0 or h > 8760:
-                return jsonify({"error": "贈送時間須 0~8760 小時"}), 400
-            updates["grant_hours"] = h
-        if "max_extend_days" in data:
-            updates["max_extend_days"] = int(data["max_extend_days"])
         if "is_active" in data:
             updates["is_active"] = bool(data["is_active"])
         if "password" in data and data["password"]:

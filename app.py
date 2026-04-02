@@ -1104,10 +1104,6 @@ def cmd_agent_extend(user_id, token, text, agent):
     if days <= 0:
         reply_text(token, "❌ 天數必須大於 0"); return
 
-    max_days = agent.get("max_extend_days", 31)
-    if days > max_days:
-        reply_text(token, f"❌ 超過上限，你最多可延長 {max_days} 天"); return
-
     # 查找目標用戶
     if target_ref.startswith("REF-"):
         r = sb().table("members").select("*").eq("referral_code", target_ref).eq("tenant_id", TENANT_ID).execute()
