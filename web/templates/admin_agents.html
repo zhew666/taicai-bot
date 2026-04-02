@@ -6,6 +6,23 @@
     <p>共 {{ agents|length }} 個代理</p>
 </hgroup>
 
+<!-- 推薦獎勵設定 -->
+<article>
+    <header>推薦獎勵設定</header>
+    <div class="grid">
+        <label>
+            會員互推獎勵（小時）
+            <input type="number" id="referralHours" value="6" min="1" max="720" style="width:100px;">
+            <small>REF-XXXX 互推，雙方各得此時數</small>
+        </label>
+        <label>
+            <br>
+            <button class="outline btn-sm" onclick="saveReferralHours()">儲存</button>
+            <span id="referralMsg"></span>
+        </label>
+    </div>
+</article>
+
 <!-- 新增代理 -->
 <article>
     <header>新增代理</header>
@@ -26,10 +43,6 @@
                 <input type="number" id="newGrant" value="6" min="1" max="8760">
             </label>
             <label>
-                延長上限（天）
-                <input type="number" id="newExtend" value="31" min="1">
-            </label>
-            <label>
                 登入密碼
                 <input type="text" id="newPw" value="123456">
             </label>
@@ -47,7 +60,6 @@
             <th>名稱</th>
             <th>推廣碼</th>
             <th>贈送(h)</th>
-            <th>延長上限(天)</th>
             <th>下線數</th>
             <th>狀態</th>
             <th>操作</th>
@@ -55,7 +67,6 @@
     </thead>
     <tbody>
         {% for a in agents %}
-        {% if not a.is_admin %}
         <tr>
             <td>
                 <input type="text" value="{{ a.display_name or a.name or '' }}"
@@ -69,23 +80,21 @@
                 <input type="number" value="{{ a.grant_hours or 6 }}"
                        id="grant-{{ a.agent_id }}" style="width:55px;padding:2px 4px;font-size:0.85rem;" min="1">
             </td>
-            <td>
-                <input type="number" value="{{ a.max_extend_days or 31 }}"
-                       id="extend-{{ a.agent_id }}" style="width:50px;padding:2px 4px;font-size:0.85rem;" min="1">
-            </td>
             <td>{{ a._downline_count or 0 }}</td>
             <td>
-                {% if a.is_active %}<ins>啟用</ins>{% else %}<del>停用</del>{% endif %}
+                {% if a.is_admin %}<ins>管理員</ins>
+                {% elif a.is_active %}<ins>啟用</ins>{% else %}<del>停用</del>{% endif %}
             </td>
             <td style="white-space:nowrap;">
                 <button class="outline btn-sm" onclick="saveAgent('{{ a.agent_id }}')">儲存</button>
                 <button class="outline btn-sm secondary" onclick="resetPw('{{ a.agent_id }}', '{{ a.display_name or a.agent_code }}')">密碼</button>
+                {% if not a.is_admin %}
                 <button class="outline btn-sm {% if a.is_active %}secondary{% endif %}" onclick="toggleAgent('{{ a.agent_id }}', {{ 'false' if a.is_active else 'true' }})">
                     {{ '停用' if a.is_active else '啟用' }}
                 </button>
+                {% endif %}
             </td>
         </tr>
-        {% endif %}
         {% endfor %}
     </tbody>
 </table>
@@ -100,6 +109,25 @@
 
 {% block scripts %}
 <script>
+// 載入推薦獎勵設定
+fetch('/dashboard/api/admin/config')
+.then(r => r.json())
+.then(config => {
+    if (config.referral_hours) document.getElementById('referralHours').value = config.referral_hours;
+});
+
+function saveReferralHours() {
+    const hours = parseInt(document.getElementById('referralHours').value);
+    fetch('/dashboard/api/admin/config', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({referral_hours: String(hours)})
+    }).then(r => r.json()).then(data => {
+        if (data.ok) document.getElementById('referralMsg').innerHTML = '<small style="color:var(--pico-ins-color)">已儲存</small>';
+        else document.getElementById('referralMsg').innerHTML = '<small style="color:var(--pico-del-color)">失敗</small>';
+    });
+}
+
 function createAgent(e) {
     e.preventDefault();
     fetch('/dashboard/api/admin/agents', {
@@ -109,7 +137,6 @@ function createAgent(e) {
             display_name: document.getElementById('newName').value,
             custom_ref_code: document.getElementById('newCode').value,
             grant_hours: parseInt(document.getElementById('newGrant').value),
-            max_extend_days: parseInt(document.getElementById('newExtend').value),
             password: document.getElementById('newPw').value,
         })
     }).then(r => r.json()).then(data => {
@@ -131,7 +158,6 @@ function saveAgent(id) {
             display_name: document.getElementById('name-' + id).value.trim(),
             custom_ref_code: document.getElementById('code-' + id).value.trim(),
             grant_hours: parseInt(document.getElementById('grant-' + id).value),
-            max_extend_days: parseInt(document.getElementById('extend-' + id).value),
         })
     }).then(r => r.json()).then(data => {
         if (data.ok) alert('已儲存');

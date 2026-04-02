@@ -1551,20 +1551,22 @@ def cmd_enter_code(user_id, token, text, member):
     referrer = r_check.data[0]
     if referrer["user_id"] == user_id:
         reply_text(token, "不能輸入自己的推薦碼"); return
-    # 被推薦人 +6h
+    # 讀取推薦獎勵時數（system_config，預設 6）
+    ref_hours = int(_get_config("referral_hours", "6"))
+    # 被推薦人 +ref_hours
     now = datetime.now(timezone.utc)
     exp = member.get("expire_at")
     user_base = max(datetime.fromisoformat(exp.replace("Z","+00:00")), now) if exp else now
-    new_user_exp = (user_base + timedelta(hours=6)).isoformat()
+    new_user_exp = (user_base + timedelta(hours=ref_hours)).isoformat()
     sb().table("members").update({
         "referred_by": referrer["user_id"],
         "expire_at": new_user_exp,
         "trial_start": now.isoformat() if not member.get("trial_start") else member["trial_start"],
     }).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
-    # 推薦人 +6h
+    # 推薦人 +ref_hours
     ref_exp = referrer["expire_at"]
     ref_base = max(datetime.fromisoformat(ref_exp.replace("Z","+00:00")), now) if ref_exp else now
-    new_ref_exp = (ref_base + timedelta(hours=6)).isoformat()
+    new_ref_exp = (ref_base + timedelta(hours=ref_hours)).isoformat()
     sb().table("members").update({"expire_at": new_ref_exp}).eq("user_id", referrer["user_id"]).eq("tenant_id", TENANT_ID).execute()
     sb().table("referral_events").insert({
         "tenant_id": TENANT_ID,
@@ -1573,10 +1575,10 @@ def cmd_enter_code(user_id, token, text, member):
         "code_used": code,
         "code_type": "referral",
         "event_type": "referral_used",
-        "bonus_given_hours": 6,
+        "bonus_given_hours": ref_hours,
     }).execute()
     reply_text(token,
-        f"✅ 推薦碼輸入成功！使用期限 +6 小時 🎁\n\n"
+        f"✅ 推薦碼輸入成功！使用期限 +{ref_hours} 小時 🎁\n\n"
         f"━━━━━━━━━━━━━━\n"
         f"🃏 功能說明\n\n"
         f"📡 {CMD_AIRDROP} X\n"
@@ -1597,7 +1599,7 @@ def cmd_enter_code(user_id, token, text, member):
         f"2️⃣ 回來輸入「綁定帳號」\n"
         f"3️⃣ 輸入「確認儲值」通知客服")
     try:
-        push_text(referrer["user_id"], "🎉 有好友使用你的推薦碼，使用期限 +6 小時！")
+        push_text(referrer["user_id"], f"🎉 有好友使用你的推薦碼，使用期限 +{ref_hours} 小時！")
     except Exception:
         pass
 
