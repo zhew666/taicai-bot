@@ -567,7 +567,8 @@ def cmd_airdrop(user_id, token, text, member):
     lines = [
         f"📡 全局掃描已開啟 [{plat}]",
         "━━━━━━━━━━━━━━",
-        "正預期收益選項出現時，第一時間通知你",
+        f"開始監控{plat}所有桌檯",
+        "出現正預期收益將即時推播通知",
         "",
         f"監控廳數：{active} 廳",
         f"結束時間：{exp_tw}",
