@@ -565,8 +565,9 @@ def cmd_airdrop(user_id, token, text, member):
     pos = sum(1 for r in real if any(r.get(f) and r[f] > 0 for f in EV_FIELDS))
 
     lines = [
-        f"📡 全局掃描已開啟",
+        f"📡 全局掃描已開啟 [{plat}]",
         "━━━━━━━━━━━━━━",
+        "正預期收益選項出現時，第一時間通知你",
         "",
         f"監控廳數：{active} 廳",
         f"結束時間：{exp_tw}",
