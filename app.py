@@ -12,7 +12,7 @@ from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi,
     ReplyMessageRequest, PushMessageRequest, TextMessage
 )
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent
 from supabase import create_client
 
 app     = Flask(__name__)
@@ -1778,6 +1778,15 @@ def callback():
     except Exception as e:
         print(f"[Webhook] 未預期錯誤: {e}", flush=True)
     return "OK"
+
+@handler.add(FollowEvent)
+def handle_follow(event):
+    user_id = event.source.user_id
+    print(f"[Follow] {user_id}", flush=True)
+    try:
+        get_or_create_member(user_id)
+    except Exception as e:
+        print(f"[Follow Error] {e}", flush=True)
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
