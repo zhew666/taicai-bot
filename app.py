@@ -404,6 +404,7 @@ def get_or_create_member(user_id: str) -> dict:
         "referred_by":   None,
         "warned_15min":  False,
         "game":          DEFAULT_PLATFORM,
+        "created_at":    now.isoformat(),
     }
     sb().table("members").insert(member).execute()
     return member
