@@ -497,7 +497,7 @@ def cmd_confirm_deposit(user_id, token, member):
         f"📋 儲值待確認\n"
         f"━━━━━━━━━━━━━━\n"
         f"{GW_NAME}帳號：{account}\n"
-        f"上級代理：{agent_name}\n\n"
+        f"用戶來源：{agent_name}\n\n"
         f"請確認儲值後回覆：\n"
         f"  確認 {account} <金額>\n\n"
         f"未通過請回覆：\n"
