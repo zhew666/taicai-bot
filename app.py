@@ -137,6 +137,13 @@ def get_agent_name(user_id):
     """取得會員的上級代理名稱"""
     member = sb().table("members").select("referred_by").eq("user_id", user_id).eq("tenant_id", TENANT_ID).limit(1).execute()
     if not member.data or not member.data[0].get("referred_by"):
+        # 直屬官方，查管理員的 display_name
+        try:
+            admin = sb().table("agents").select("display_name").eq("tenant_id", TENANT_ID).eq("is_admin", True).limit(1).execute()
+            if admin.data and admin.data[0].get("display_name"):
+                return admin.data[0]["display_name"]
+        except Exception:
+            pass
         return f"{BRAND_NAME}官方"
     return _find_top_agent(member.data[0]["referred_by"])
 
@@ -665,8 +672,10 @@ def get_member_type(user_id: str, member: dict) -> str:
     exp = member.get("expire_at", "")
     if exp:
         exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-        if datetime.now(timezone.utc) < exp_dt:
-            return "✅ 正式帳號" if is_paid else "⏳ 試用會員"
+        now = datetime.now(timezone.utc)
+        if now < exp_dt:
+            remaining_h = (exp_dt - now).total_seconds() / 3600
+            return "✅ 正式帳號" if is_paid or remaining_h > 1 else "⏳ 體驗中"
         return "⏰ 使用期限已到期"
     if not member.get("referred_by"):
         return "🆕 請先輸入推薦碼"
@@ -944,7 +953,7 @@ def cmd_admin_query(user_id, token, text):
     elif exp:
         exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
         if datetime.now(timezone.utc) < exp_dt:
-            status = "試用中"
+            status = "體驗中"
         else:
             status = "已過期"
     else:
@@ -983,7 +992,7 @@ def cmd_admin_query(user_id, token, text):
         f"直屬：{direct_count} 人\n"
         f"裂變總計：{total} 人\n"
         f"  付費：{paid}\n"
-        f"  試用：{trial}\n"
+        f"  體驗中：{trial}\n"
         f"  過期：{expired}")
 
 def cmd_admin_set_agent(user_id, token, text):
