@@ -184,7 +184,7 @@ def is_test_mode() -> bool:
 
 def set_test_mode(on: bool):
     _set_config("test_mode", "true" if on else "false")
-COOLDOWN_SEC = 5
+COOLDOWN_SEC = 1
 
 def check_cooldown(user_id: str) -> bool:
     """True = 可以執行；False = 冷卻中"""
