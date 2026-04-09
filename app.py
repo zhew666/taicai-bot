@@ -1100,6 +1100,152 @@ def cmd_admin_set_grant(user_id, token, text):
     label = f"{hours//24} 天" if hours >= 24 and hours % 24 == 0 else f"{hours} 小時"
     reply_text(token, f"✅ {agent.get('custom_ref_code') or agent['agent_code']} 的贈送時間已設為 {label}")
 
+# ── 兌換碼系統 ──────────────────────────────────────────────
+def cmd_admin_create_redeem(user_id, token, text):
+    """建兌換碼 <碼名> <有效時間> [兌換時數]
+    例：建兌換碼 Evpro2h 2h        → 碼 Evpro2h，2小時內有效，兌換得1h
+    例：建兌換碼 VIP888 24h 3      → 碼 VIP888，24小時內有效，兌換得3h
+    """
+    parts = text.replace("建兌換碼", "").strip().split()
+    if len(parts) < 2:
+        reply_text(token, "格式：建兌換碼 <碼名> <有效時間> [兌換時數]\n例：建兌換碼 Evpro2h 2h\n例：建兌換碼 VIP888 24h 3")
+        return
+    code_name = parts[0]
+    dur_str = parts[1]
+    redeem_hours = int(parts[2]) if len(parts) >= 3 else 1
+
+    # 解析有效時間
+    try:
+        delta, _ = _parse_duration(dur_str)
+    except Exception:
+        reply_text(token, f"無法解析時間：{dur_str}\n支援格式：2h / 24h / 1天 / 7天")
+        return
+
+    valid_until = (datetime.now(timezone.utc) + delta).isoformat()
+
+    # 檢查碼名衝突
+    existing = sb().table("redemption_codes").select("id").eq("code", code_name.upper()).eq("tenant_id", TENANT_ID).execute()
+    if existing.data:
+        reply_text(token, f"❌ 兌換碼 {code_name.upper()} 已存在")
+        return
+    # 檢查跟代理碼/推薦碼衝突
+    agent_conflict = sb().table("agents").select("agent_id").eq("custom_ref_code", code_name.upper()).eq("tenant_id", TENANT_ID).execute()
+    ref_conflict = sb().table("members").select("user_id").eq("referral_code", code_name.upper()).eq("tenant_id", TENANT_ID).execute()
+    if agent_conflict.data or ref_conflict.data:
+        reply_text(token, f"❌ {code_name.upper()} 與現有推廣碼或推薦碼衝突，請換一個名字")
+        return
+
+    sb().table("redemption_codes").insert({
+        "code": code_name.upper(),
+        "hours": redeem_hours,
+        "valid_until": valid_until,
+        "tenant_id": TENANT_ID,
+    }).execute()
+
+    exp_tw = (datetime.now(timezone.utc) + delta).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+    reply_text(token,
+        f"✅ 兌換碼已建立\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"碼：{code_name.upper()}\n"
+        f"兌換時數：{redeem_hours} 小時\n"
+        f"有效至：{exp_tw}")
+
+def cmd_admin_redeem_status(user_id, token):
+    """列出目前所有兌換碼狀態"""
+    codes = sb().table("redemption_codes").select("*").eq("tenant_id", TENANT_ID).order("created_at", desc=True).execute().data or []
+    if not codes:
+        reply_text(token, "目前沒有兌換碼")
+        return
+    now = datetime.now(timezone.utc)
+    lines = ["📋 兌換碼總覽\n━━━━━━━━━━━━━━"]
+    for c in codes:
+        exp_dt = datetime.fromisoformat(c["valid_until"].replace("Z", "+00:00"))
+        is_active = now < exp_dt
+        status = "🟢 有效" if is_active else "🔴 已過期"
+        exp_tw = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+        # 查兌換人數
+        logs = sb().table("redemption_logs").select("id", count="exact").eq("code_id", c["id"]).execute()
+        used = logs.count if logs.count is not None else 0
+        lines.append(f"\n{c['code']}  {status}\n  兌換 {c['hours']}h｜到期 {exp_tw}｜已兌換 {used} 人")
+    reply_text(token, "\n".join(lines))
+
+def cmd_admin_redeem_detail(user_id, token, text):
+    """兌換碼明細 <碼名>"""
+    code_name = text.replace("兌換碼明細", "").strip().upper()
+    if not code_name:
+        reply_text(token, "格式：兌換碼明細 <碼名>")
+        return
+    code_row = sb().table("redemption_codes").select("*").eq("code", code_name).eq("tenant_id", TENANT_ID).execute()
+    if not code_row.data:
+        reply_text(token, f"找不到兌換碼：{code_name}")
+        return
+    c = code_row.data[0]
+    logs = sb().table("redemption_logs").select("user_id,redeemed_at").eq("code_id", c["id"]).order("redeemed_at").execute().data or []
+    exp_dt = datetime.fromisoformat(c["valid_until"].replace("Z", "+00:00"))
+    exp_tw = exp_dt.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+    lines = [
+        f"📋 兌換碼明細：{c['code']}",
+        f"━━━━━━━━━━━━━━",
+        f"兌換時數：{c['hours']}h",
+        f"有效至：{exp_tw}",
+        f"已兌換：{len(logs)} 人",
+    ]
+    if logs:
+        lines.append("")
+        for i, log in enumerate(logs, 1):
+            t = datetime.fromisoformat(log["redeemed_at"].replace("Z", "+00:00")).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+            # 查推薦碼
+            m = sb().table("members").select("referral_code").eq("user_id", log["user_id"]).eq("tenant_id", TENANT_ID).execute()
+            ref = m.data[0]["referral_code"] if m.data else "?"
+            lines.append(f"  {i}. {ref}  {t}")
+    reply_text(token, "\n".join(lines))
+
+def cmd_redeem_code(user_id, token, text, member):
+    """用戶輸入兌換碼"""
+    code_name = text.strip().upper()
+    # 查碼
+    code_row = sb().table("redemption_codes").select("*").eq("code", code_name).eq("tenant_id", TENANT_ID).execute()
+    if not code_row.data:
+        return False  # 不是兌換碼，交給後續推薦碼邏輯
+    c = code_row.data[0]
+    # 檢查過期
+    now = datetime.now(timezone.utc)
+    exp_dt = datetime.fromisoformat(c["valid_until"].replace("Z", "+00:00"))
+    if now >= exp_dt:
+        reply_text(token, "⏰ 此兌換碼已過期")
+        return True
+    # 檢查是否已兌換過
+    existing = sb().table("redemption_logs").select("id").eq("code_id", c["id"]).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
+    if existing.data:
+        reply_text(token, "你已經兌換過此碼了")
+        return True
+    # 兌換：加時間
+    hours = c["hours"]
+    base = now
+    if member.get("expire_at"):
+        member_exp = datetime.fromisoformat(member["expire_at"].replace("Z", "+00:00"))
+        if member_exp > now:
+            base = member_exp
+    new_exp = (base + timedelta(hours=hours)).isoformat()
+    updates = {"expire_at": new_exp}
+    if not member.get("trial_start"):
+        updates["trial_start"] = now.isoformat()
+    sb().table("members").update(updates).eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
+    # 記錄
+    sb().table("redemption_logs").insert({
+        "code_id": c["id"],
+        "user_id": user_id,
+        "tenant_id": TENANT_ID,
+    }).execute()
+    exp_tw = (base + timedelta(hours=hours)).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+    reply_text(token,
+        f"🎉 兌換成功！\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"已獲得 {hours} 小時使用時間\n"
+        f"到期時間：{exp_tw}\n\n"
+        f"輸入「說明」查看功能介紹")
+    return True
+
 def cmd_agent_extend(user_id, token, text, agent):
     """代理延長指令：延長 REF-XXXX X天"""
     parts = text.strip().split()
@@ -1936,6 +2082,18 @@ def handle_message(event):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
         cmd_admin_set_grant(user_id, token, text); return
+    if text.startswith("建兌換碼") or text.startswith("建兑换码"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_create_redeem(user_id, token, text); return
+    if text in ("兌換碼狀態", "兑换码状态"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_redeem_status(user_id, token); return
+    if text.startswith("兌換碼明細") or text.startswith("兑换码明细"):
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_redeem_detail(user_id, token, text); return
     if text.startswith("開通"):
         cmd_admin_activate(user_id, token, text); return
     if text.startswith("延長"):
@@ -1959,7 +2117,9 @@ def handle_message(event):
                       CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text or "開始報牌" in text or \
                       re.match(r'^[A-Za-z0-9\-]{3,20}$', text) or \
                       text in ("介紹","說明","指令","help","切換","切換平台","繼續","綁定帳號","確認儲值","審核狀態",
-                               "功能介紹","EV介紹","算牌介紹","我的推薦碼","推薦碼","聊天室")
+                               "功能介紹","EV介紹","算牌介紹","我的推薦碼","推薦碼","聊天室",
+                               "DG開","dg開","Dg開","DG關","dg關","Dg關","MT開","mt開","Mt開","MT關","mt關","Mt關",
+                               "維護開","維護關","測試開","測試關","管理員指令","兌換碼狀態")
             if not _is_cmd:
                 _pending_follow.pop(user_id, None)
                 cmd_follow(user_id, token, "跟隨" + text, member)
@@ -2065,8 +2225,10 @@ def handle_message(event):
     elif any(text.startswith(k) for k in ("好友推薦碼","好友推荐码","推薦碼","推荐码","推廣碼","推广码","輸入推薦碼","输入推荐码","我的推薦碼是")):
         cmd_enter_code(user_id, token, text, member)
     elif re.match(r'^[A-Za-z0-9\-]{3,20}$', text) and text.lower() not in ("stop","help","test","menu"):
-        # 3~20 碼英數字（含 REF-XXXX、代理碼），自動當推薦碼處理
-        cmd_enter_code(user_id, token, text, member)
+        # 先檢查是否為兌換碼
+        if not cmd_redeem_code(user_id, token, text, member):
+            # 不是兌換碼，走推薦碼/代理碼流程
+            cmd_enter_code(user_id, token, text, member)
 
 # ── 背景輪詢 ──────────────────────────────────────────────
 def _check_data_freshness(latest_hands: dict):
