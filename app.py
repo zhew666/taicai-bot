@@ -2045,7 +2045,7 @@ def handle_message(event):
                 dg_count = 0
             desk_info = "桌號：01~07"
             if _sexy_enabled():
-                desk_info += "\n性感桌：S01~S07（跳過S04）"
+                desk_info += "\n性感桌：S01~S07"
             reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n{desk_info}\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 DG 數據"); return
         reply_text(token, f"✅ 已切換到 MT 平台\n13 廳在線\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 MT 數據"); return
     if text in ("切換DG", "切換dg", "切換Dg"):
@@ -2063,7 +2063,7 @@ def handle_message(event):
             dg_count = 0
         desk_info = "桌號：01~07"
         if _sexy_enabled():
-            desk_info += "\n性感桌：S01~S07（跳過S04）"
+            desk_info += "\n性感桌：S01~S07"
         reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n{desk_info}\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 DG 數據"); return
     if text in ("切換MT", "切換mt", "切換Mt"):
         if not is_platform_enabled("MT") and not is_admin(user_id):
