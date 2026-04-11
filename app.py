@@ -521,8 +521,11 @@ def cmd_follow(user_id, token, text, member):
                 reply_text(token, f"👁 已停止跟隨{tnum(old_tid)}"); return
         _pending_follow[user_id] = {"expire_ts": time.time() + 30}
         if plat == "DG":
+            desk_hint = "👁 請輸入桌號：01~07"
+            if _sexy_enabled():
+                desk_hint += "、S01~S07"
             reply_text(token,
-                "👁 請輸入桌號：01~07\n"
+                f"{desk_hint}\n"
                 f"📡 DG（{len(valid_tables)} 桌在線）")
         else:
             reply_text(token,
