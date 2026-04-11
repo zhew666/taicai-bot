@@ -67,7 +67,7 @@ def _refresh_dg_sexy():
     try:
         rows = sb().table("live_tables").select("table_id").eq("platform", "DG").like("table_id", "DGS%").execute().data
         sids = sorted([r["table_id"] for r in rows]) if rows else []
-        _dg_sexy_cache["fwd"] = {sid: f"S{i+1:02d}" for i, sid in enumerate(sids)}
+        _dg_sexy_cache["fwd"] = {sid: f"S{sid[3:]}" for sid in sids}
         _dg_sexy_cache["rev"] = {v: k for k, v in _dg_sexy_cache["fwd"].items()}
         _dg_sexy_cache["ts"] = now
     except Exception as e:
