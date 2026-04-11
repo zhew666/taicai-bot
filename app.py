@@ -34,7 +34,7 @@ def sb():
 
 import httpx as _httpx
 
-REGISTER_URL    = os.environ.get("REGISTER_URL", "v088.gw1688.net")
+REGISTER_URL    = os.environ.get("REGISTER_URL", "https://v088.gw1788.net")
 TENANT_ID       = os.environ.get("TENANT_ID", "")
 ADMIN_USER_ID   = os.environ.get("ADMIN_USER_ID", "")
 ADMIN_REF_CODE  = os.environ.get("ADMIN_REF_CODE", "")
