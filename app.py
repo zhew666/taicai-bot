@@ -2039,10 +2039,14 @@ def handle_message(event):
             airdrop.pop(user_id, None)
         if new_plat == "DG":
             try:
-                dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
+                tables = get_platform_tables("DG", admin=is_admin(user_id))
+                dg_count = len(tables)
             except Exception:
                 dg_count = 0
-            reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 DG 數據"); return
+            desk_info = "桌號：01~07"
+            if _sexy_enabled():
+                desk_info += "\n性感桌：S01~S07（跳過S04）"
+            reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n{desk_info}\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 DG 數據"); return
         reply_text(token, f"✅ 已切換到 MT 平台\n13 廳在線\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 MT 數據"); return
     if text in ("切換DG", "切換dg", "切換Dg"):
         if not is_platform_enabled("DG") and not is_admin(user_id):
@@ -2115,7 +2119,7 @@ def handle_message(event):
             # 檢查是否為其他有效指令，如果是就取消等待、直接走正常流程
             _is_cmd = any(text.startswith(k) for k in (CMD_AIRDROP,"空投","開始空投","全局監控","掃描桌檯","掃描桌台","停止","結束","stop","推薦碼","推廣碼","好友推薦碼")) or \
                       CMD_GUIDE in text or "仙人指路" in text or "最佳推薦" in text or "開始報牌" in text or \
-                      re.match(r'^[A-Za-z0-9\-]{3,20}$', text) or \
+                      re.match(r'^[A-Za-z0-9\-]{5,20}$', text) or \
                       text in ("介紹","說明","指令","help","切換","切換平台","繼續","綁定帳號","確認儲值","審核狀態",
                                "功能介紹","EV介紹","算牌介紹","我的推薦碼","推薦碼","聊天室",
                                "DG開","dg開","Dg開","DG關","dg關","Dg關","MT開","mt開","Mt開","MT關","mt關","Mt關",
@@ -2213,7 +2217,9 @@ def handle_message(event):
     if not check_cooldown(user_id):
         return
 
-    if any(text.startswith(k) for k in (CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控","鎖定桌檯","鎖定桌台")):
+    if re.match(r'^S0[1-7]$', text.upper()):
+        cmd_follow(user_id, token, "跟隨" + text.upper(), member)
+    elif any(text.startswith(k) for k in (CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控","鎖定桌檯","鎖定桌台")):
         body = re.sub(r'^(' + '|'.join([CMD_FOLLOW, "跟隨","跟随","追隨","追蹤","監控","鎖定桌檯","鎖定桌台"]) + ')', '', text).strip()
         cmd_follow(user_id, token, "跟隨" + body, member)
     elif text.startswith(CMD_AIRDROP) or text.startswith("空投") or text.startswith("開始空投") or text.startswith("全局監控") or text.startswith("掃描桌檯") or text.startswith("掃描桌台"):
@@ -2224,7 +2230,7 @@ def handle_message(event):
         cmd_guide(user_id, token, member)
     elif any(text.startswith(k) for k in ("好友推薦碼","好友推荐码","推薦碼","推荐码","推廣碼","推广码","輸入推薦碼","输入推荐码","我的推薦碼是")):
         cmd_enter_code(user_id, token, text, member)
-    elif re.match(r'^[A-Za-z0-9\-]{3,20}$', text) and text.lower() not in ("stop","help","test","menu"):
+    elif re.match(r'^[A-Za-z0-9\-]{5,20}$', text) and text.lower() not in ("stop","help","test","menu"):
         # 先檢查是否為兌換碼
         if not cmd_redeem_code(user_id, token, text, member):
             # 不是兌換碼，走推薦碼/代理碼流程
