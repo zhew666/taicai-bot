@@ -2057,10 +2057,14 @@ def handle_message(event):
         with airdrop_lock:
             airdrop.pop(user_id, None)
         try:
-            dg_count = len(sb().table("live_tables").select("table_id").eq("platform", "DG").execute().data or [])
+            tables = get_platform_tables("DG", admin=is_admin(user_id))
+            dg_count = len(tables)
         except Exception:
             dg_count = 0
-        reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n桌號：01~07\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 DG 數據"); return
+        desk_info = "桌號：01~07"
+        if _sexy_enabled():
+            desk_info += "\n性感桌：S01~S07（跳過S04）"
+        reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n{desk_info}\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 DG 數據"); return
     if text in ("切換MT", "切換mt", "切換Mt"):
         if not is_platform_enabled("MT") and not is_admin(user_id):
             reply_text(token, "🔒 MT 場館目前未開放"); return
