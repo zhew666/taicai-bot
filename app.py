@@ -1103,6 +1103,23 @@ def cmd_admin_set_grant(user_id, token, text):
     label = f"{hours//24} 天" if hours >= 24 and hours % 24 == 0 else f"{hours} 小時"
     reply_text(token, f"✅ {agent.get('custom_ref_code') or agent['agent_code']} 的贈送時間已設為 {label}")
 
+def cmd_admin_reset_member(user_id, token, text):
+    """重置 REF-XXXX — 刪除用戶所有記錄，恢復全新狀態"""
+    target = text.replace("重置", "").strip().upper()
+    if not target:
+        reply_text(token, "格式：重置 REF-XXXX"); return
+    r = sb().table("members").select("user_id,referral_code").eq("referral_code", target).eq("tenant_id", TENANT_ID).execute()
+    if not r.data:
+        reply_text(token, f"找不到用戶：{target}"); return
+    uid = r.data[0]["user_id"]
+    try:
+        sb().table("referral_events").delete().eq("referee_id", uid).eq("tenant_id", TENANT_ID).execute()
+        sb().table("redemption_logs").delete().eq("user_id", uid).eq("tenant_id", TENANT_ID).execute()
+        sb().table("members").delete().eq("user_id", uid).eq("tenant_id", TENANT_ID).execute()
+        reply_text(token, f"✅ {target} 已重置\n下次傳訊息將建立全新記錄")
+    except Exception as e:
+        reply_text(token, f"❌ 重置失敗：{e}")
+
 # ── 兌換碼系統 ──────────────────────────────────────────────
 def cmd_admin_create_redeem(user_id, token, text):
     """建兌換碼 <碼名> <有效時間> [兌換時數]
@@ -2093,6 +2110,10 @@ def handle_message(event):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
         cmd_admin_set_grant(user_id, token, text); return
+    if text.startswith("重置") and not text.startswith("重置試") :
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_reset_member(user_id, token, text); return
     if text.startswith("建兌換碼") or text.startswith("建兑换码"):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
