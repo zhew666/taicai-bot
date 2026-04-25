@@ -281,6 +281,27 @@ def push_text(user_id: str, text: str):
             if attempt == 2:
                 print(f"[push_text] 失敗 3 次放棄: {e}", flush=True)
 
+def _screenshot_fresh(tid: str, max_age_sec: int = 180) -> bool:
+    """查 Supabase Storage 該截圖最後更新時間，3 分鐘內視為新鮮"""
+    try:
+        r = _httpx.get(
+            f"{_sb_url}/storage/v1/object/info/screenshots/live/{tid}.jpg",
+            headers={"apikey": _sb_key, "Authorization": f"Bearer {_sb_key}"},
+            timeout=3,
+        )
+        if r.status_code != 200:
+            return False
+        j = r.json()
+        lm = j.get("last_modified") or (j.get("metadata") or {}).get("lastModified")
+        if not lm:
+            return False
+        lm_dt = datetime.fromisoformat(lm.replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - lm_dt).total_seconds()
+        return age < max_age_sec
+    except Exception as e:
+        print(f"[Screenshot Fresh] {tid}: {e}", flush=True)
+        return False
+
 def reply_text_image(token: str, text: str, image_url: str):
     """reply 一次帶 文字+圖片（用 reply token 多訊息免費）"""
     for attempt in range(3):
@@ -566,8 +587,8 @@ def cmd_follow(user_id, token, text, member):
     with follow_lock:
         following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0,
                               "started_at": time.time()}
-    # MT 桌附即時截圖（DG 暫無）
-    if tid.startswith("BAG"):
+    # MT 桌附即時截圖（DG 暫無；截圖超過 3 分鐘未更新則略過）
+    if tid.startswith("BAG") and _screenshot_fresh(tid):
         img_url = f"https://evpro-eye.com/api/screenshot/{tid}?t={int(time.time())}"
         reply_text_image(token, f"⏳ 正在連線第{tnum(tid)}廳...", img_url)
     else:
