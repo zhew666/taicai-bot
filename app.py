@@ -10,7 +10,7 @@ from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
     Configuration, ApiClient, MessagingApi,
-    ReplyMessageRequest, PushMessageRequest, TextMessage
+    ReplyMessageRequest, PushMessageRequest, TextMessage, ImageMessage
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent
 from supabase import create_client
@@ -281,6 +281,30 @@ def push_text(user_id: str, text: str):
             if attempt == 2:
                 print(f"[push_text] 失敗 3 次放棄: {e}", flush=True)
 
+def reply_text_image(token: str, text: str, image_url: str):
+    """reply 一次帶 文字+圖片（用 reply token 多訊息免費）"""
+    for attempt in range(3):
+        try:
+            with ApiClient(config) as api:
+                MessagingApi(api).reply_message(
+                    ReplyMessageRequest(
+                        reply_token=token,
+                        messages=[
+                            TextMessage(text=text),
+                            ImageMessage(
+                                original_content_url=image_url,
+                                preview_image_url=image_url,
+                            ),
+                        ],
+                    ))
+            return
+        except Exception as e:
+            if "429" in str(e) and attempt < 2:
+                print(f"[reply_text_image] 429 限速，重試 {attempt+1}", flush=True)
+                continue
+            if attempt == 2:
+                print(f"[reply_text_image] 失敗 3 次放棄: {e}", flush=True)
+
 def reply_text(token: str, text: str):
     for attempt in range(3):
         try:
@@ -542,7 +566,12 @@ def cmd_follow(user_id, token, text, member):
     with follow_lock:
         following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0,
                               "started_at": time.time()}
-    reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳...")
+    # MT 桌附即時截圖（DG 暫無）
+    if tid.startswith("BAG"):
+        img_url = f"https://evpro-eye.com/api/screenshot/{tid}?t={int(time.time())}"
+        reply_text_image(token, f"⏳ 正在連線第{tnum(tid)}廳...", img_url)
+    else:
+        reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳...")
 
 def cmd_airdrop(user_id, token, text, member):
     if not has_referral(member):
@@ -2441,7 +2470,9 @@ def _poll_following(latest_hands: dict):
                         following[user_id]["last_shoe"] = cur_shoe
                         following[user_id]["last_hand"] = cur_hand
                 print(f"[Follow] 首次連線，push 確認給 {user_id}", flush=True)
-                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳\n每局新牌即時推送，換靴自動停止\n再次輸入「跟隨」可手動停止")
+                dealer = row.get("dealer") or ""
+                dealer_str = f" , 荷官{dealer}" if dealer and dealer != "未知" else ""
+                push_text(user_id, f"✅ 已開始跟隨第{tnum(tid)}廳{dealer_str}\n每局新牌即時推送，換靴自動停止\n再次輸入「跟隨」或停止，可手動停止")
                 push_text(user_id, format_hand(row))
                 print(f"[Follow] push 完成", flush=True)
                 continue
