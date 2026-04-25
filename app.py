@@ -1122,17 +1122,25 @@ def cmd_admin_reset_member(user_id, token, text):
 
 # ── 兌換碼系統 ──────────────────────────────────────────────
 def cmd_admin_create_redeem(user_id, token, text):
-    """建兌換碼 <碼名> <有效時間> [兌換時數]
-    例：建兌換碼 Evpro2h 2h        → 碼 Evpro2h，2小時內有效，兌換得1h
-    例：建兌換碼 VIP888 24h 3      → 碼 VIP888，24小時內有效，兌換得3h
+    """建兌換碼 <碼名> <有效時間> [兌換時數] [綁定代理]
+    例：建兌換碼 Evpro2h 2h              → 2h內有效，兌換得1h，不自動綁代理
+    例：建兌換碼 VIP888 24h 3            → 24h內有效，兌換得3h，不自動綁代理
+    例：建兌換碼 EYE425 24h 1 ADMIN      → 兌換時若用戶沒推廣碼，自動綁到 ADMIN(v022)
+    例：建兌換碼 NEW2H 2h 1 LUCKY777     → 自動綁到 LUCKY777 代理
+    綁定代理可填：agent_code (ADMIN / AGENT-EYE88) 或 custom_ref_code (EYE88 / LUCKY777)
     """
     parts = text.replace("建兌換碼", "").strip().split()
     if len(parts) < 2:
-        reply_text(token, "格式：建兌換碼 <碼名> <有效時間> [兌換時數]\n例：建兌換碼 Evpro2h 2h\n例：建兌換碼 VIP888 24h 3")
+        reply_text(token,
+            "格式：建兌換碼 <碼名> <有效時間> [兌換時數] [綁定代理]\n"
+            "例：建兌換碼 EYE425 24h 1 ADMIN\n"
+            "例：建兌換碼 VIP888 24h 3\n"
+            "綁定代理可填：agent_code 或 custom_ref_code")
         return
     code_name = parts[0]
     dur_str = parts[1]
     redeem_hours = int(parts[2]) if len(parts) >= 3 else 1
+    bind_token = parts[3] if len(parts) >= 4 else None
 
     # 解析有效時間
     try:
@@ -1142,6 +1150,21 @@ def cmd_admin_create_redeem(user_id, token, text):
         return
 
     valid_until = (datetime.now(timezone.utc) + delta).isoformat()
+
+    # 解析綁定代理（可選）
+    bind_agent_id = None
+    bind_label = None
+    if bind_token:
+        bind_upper = bind_token.upper()
+        a = (sb().table("agents").select("agent_id,agent_code,custom_ref_code,display_name")
+             .eq("tenant_id", TENANT_ID).eq("is_active", True)
+             .or_(f"agent_code.eq.{bind_upper},custom_ref_code.eq.{bind_upper}")
+             .execute())
+        if not a.data:
+            reply_text(token, f"❌ 找不到代理：{bind_token}\n請用 agent_code 或 custom_ref_code")
+            return
+        bind_agent_id = a.data[0]["agent_id"]
+        bind_label = a.data[0].get("display_name") or a.data[0].get("agent_code")
 
     # 檢查碼名衝突
     existing = sb().table("redemption_codes").select("id").eq("code", code_name.upper()).eq("tenant_id", TENANT_ID).execute()
@@ -1160,15 +1183,17 @@ def cmd_admin_create_redeem(user_id, token, text):
         "hours": redeem_hours,
         "valid_until": valid_until,
         "tenant_id": TENANT_ID,
+        "auto_bind_agent_id": bind_agent_id,
     }).execute()
 
     exp_tw = (datetime.now(timezone.utc) + delta).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
+    bind_line = f"\n自動綁代理：{bind_label}" if bind_label else ""
     reply_text(token,
         f"✅ 兌換碼已建立\n"
         f"━━━━━━━━━━━━━━\n"
         f"碼：{code_name.upper()}\n"
         f"兌換時數：{redeem_hours} 小時\n"
-        f"有效至：{exp_tw}")
+        f"有效至：{exp_tw}{bind_line}")
 
 def cmd_admin_redeem_status(user_id, token):
     """列出目前所有兌換碼狀態"""
@@ -1176,6 +1201,14 @@ def cmd_admin_redeem_status(user_id, token):
     if not codes:
         reply_text(token, "目前沒有兌換碼")
         return
+    # 預先查所有綁定代理的 display_name
+    bind_ids = list({c.get("auto_bind_agent_id") for c in codes if c.get("auto_bind_agent_id")})
+    agent_label = {}
+    if bind_ids:
+        ar = sb().table("agents").select("agent_id,display_name,agent_code").eq("tenant_id", TENANT_ID).in_("agent_id", bind_ids).execute()
+        for a in (ar.data or []):
+            agent_label[a["agent_id"]] = a.get("display_name") or a.get("agent_code")
+
     now = datetime.now(timezone.utc)
     lines = ["📋 兌換碼總覽\n━━━━━━━━━━━━━━"]
     for c in codes:
@@ -1186,7 +1219,10 @@ def cmd_admin_redeem_status(user_id, token):
         # 查兌換人數
         logs = sb().table("redemption_logs").select("id", count="exact").eq("code_id", c["id"]).execute()
         used = logs.count if logs.count is not None else 0
-        lines.append(f"\n{c['code']}  {status}\n  兌換 {c['hours']}h｜到期 {exp_tw}｜已兌換 {used} 人")
+        bind_line = ""
+        if c.get("auto_bind_agent_id"):
+            bind_line = f"\n  自動綁：{agent_label.get(c['auto_bind_agent_id'], '?')}"
+        lines.append(f"\n{c['code']}  {status}\n  兌換 {c['hours']}h｜到期 {exp_tw}｜已兌換 {used} 人{bind_line}")
     reply_text(token, "\n".join(lines))
 
 def cmd_admin_redeem_detail(user_id, token, text):
@@ -1257,6 +1293,30 @@ def cmd_redeem_code(user_id, token, text, member):
         "user_id": user_id,
         "tenant_id": TENANT_ID,
     }).execute()
+
+    # 自動綁定代理（兌換碼設定 auto_bind_agent_id 才觸發）
+    # 條件：用戶 referred_by 為空 AND 沒用過 agent_code → 視同這次輸入了該代理推廣碼
+    bind_agent_id = c.get("auto_bind_agent_id")
+    if bind_agent_id and not member.get("referred_by") and not _has_used(user_id, "agent_code"):
+        try:
+            a_row = (sb().table("agents").select("agent_code,custom_ref_code")
+                     .eq("agent_id", bind_agent_id).eq("tenant_id", TENANT_ID).execute())
+            if a_row.data:
+                a = a_row.data[0]
+                sb().table("members").update({"referred_by": bind_agent_id}) \
+                    .eq("user_id", user_id).eq("tenant_id", TENANT_ID).execute()
+                sb().table("referral_events").insert({
+                    "tenant_id": TENANT_ID,
+                    "referrer_id": bind_agent_id,
+                    "referee_id": user_id,
+                    "code_used": a.get("custom_ref_code") or a.get("agent_code"),
+                    "code_type": "agent_code",
+                    "event_type": "auto_bind_via_redemption",
+                    "bonus_given_hours": 0,
+                }).execute()
+        except Exception as e:
+            print(f"[Redeem AutoBind] {e}", flush=True)
+
     exp_tw = (base + timedelta(hours=hours)).astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M")
     reply_text(token,
         f"🎉 兌換成功！\n"
