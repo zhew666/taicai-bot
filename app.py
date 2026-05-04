@@ -51,7 +51,51 @@ CMD_FOLLOW     = os.environ.get("CMD_FOLLOW", "鎖定桌檯")
 DEFAULT_PLATFORM = os.environ.get("DEFAULT_PLATFORM", "MT")
 GW_AMOUNT      = int(os.environ.get("GW_AMOUNT", "3000"))
 GW_HOURS       = int(os.environ.get("GW_HOURS", "48"))
-GW_TIERS_TEXT  = f"💡 儲值 {GW_AMOUNT:,} 點 → {GW_HOURS} 小時"
+
+def _parse_gw_tiers():
+    """解析 GW_TIERS env，格式：3000:24,10000:120,50000:240
+    （金額:小時）。沒設則 fallback 為單一 (GW_AMOUNT, GW_HOURS)"""
+    raw = os.environ.get("GW_TIERS", "").strip()
+    if not raw:
+        return [(GW_AMOUNT, GW_HOURS)]
+    out = []
+    for part in raw.split(","):
+        if ":" not in part: continue
+        a, h = part.split(":", 1)
+        try:
+            out.append((int(a.strip()), int(h.strip())))
+        except ValueError:
+            continue
+    out.sort(key=lambda x: x[0])
+    return out or [(GW_AMOUNT, GW_HOURS)]
+
+GW_TIERS = _parse_gw_tiers()
+
+def _fmt_hours(hours: int) -> str:
+    """48→'2 天'、36→'1.5 天'、3→'3 小時'"""
+    if hours >= 24:
+        d = hours / 24
+        return f"{int(d)} 天" if d == int(d) else f"{d:.1f} 天"
+    return f"{hours} 小時"
+
+def _build_tiers_text():
+    if len(GW_TIERS) == 1:
+        a, h = GW_TIERS[0]
+        return f"💡 儲值 {a:,} 點 → {_fmt_hours(h)}"
+    lines = ["💡 儲值方案"]
+    for a, h in GW_TIERS:
+        lines.append(f"・{a:,} 點 → {_fmt_hours(h)}")
+    return "\n".join(lines)
+
+GW_TIERS_TEXT = _build_tiers_text()
+
+def _match_tier(amount: int):
+    """金額 ±10% 容錯：取金額符合 amount >= tier_amount * 0.9 的最高 tier"""
+    matched = None
+    for a, h in GW_TIERS:
+        if amount >= a * 0.9:
+            matched = (a, h)
+    return matched
 ALL_TABLES_MT = [f"BAG{i:02d}" for i in range(1, 14)] + ["BAG03A", "TEST01"]
 
 # DG 標準桌映射：01~07 → DGR1~DGR7
@@ -1563,10 +1607,13 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
         amount = int(parts[2])
     except ValueError:
         return "金額請輸入數字"
-    # 單一方案：金額 ±10% 彈性
-    if amount < int(GW_AMOUNT * 0.9):
-        return f"金額不足\n最低 {GW_AMOUNT:,} 點 → {GW_HOURS} 小時"
-    hours = GW_HOURS
+    # 多級方案：金額 ±10% 容錯，找最高符合的 tier
+    matched = _match_tier(amount)
+    if not matched:
+        lines = ["金額不足"]
+        lines.append(GW_TIERS_TEXT)
+        return "\n".join(lines)
+    _matched_amount, hours = matched
     r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
@@ -1628,12 +1675,12 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
         push_text(target_uid,
             f"🎉 帳號驗證通過！\n"
             f"━━━━━━━━━━━━━━\n"
-            f"使用期限延長 {hours} 小時\n"
+            f"使用期限延長 {_fmt_hours(hours)}\n"
             f"新到期時間：{new_exp_tw}\n\n"
             f"感謝使用{BRAND_NAME}！")
     except Exception:
         pass
-    return f"✅ 已確認 {account}\n儲值 {amount} 點 → 延長 {hours} 小時\n新到期：{new_exp_tw}"
+    return f"✅ 已確認 {account}\n儲值 {amount} 點 → 延長 {_fmt_hours(hours)}\n新到期：{new_exp_tw}"
 
 def _do_gw_reject(text: str) -> str:
     """純邏輯：拒絕，回傳結果文字。"""
