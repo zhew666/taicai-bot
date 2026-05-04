@@ -1607,18 +1607,34 @@ def _do_gw_verify(text: str, verified_by: str = "telegram") -> str:
         amount = int(parts[2])
     except ValueError:
         return "金額請輸入數字"
-    # 多級方案：金額 ±10% 容錯，找最高符合的 tier
-    matched = _match_tier(amount)
-    if not matched:
-        lines = ["金額不足"]
-        lines.append(GW_TIERS_TEXT)
-        return "\n".join(lines)
-    _matched_amount, hours = matched
+    # 先查用戶
     r = sb().table("members").select("*").eq("gw_account", account).eq("tenant_id", TENANT_ID).execute()
     if not r.data:
         return f"找不到綁定帳號 {account} 的用戶"
     m = r.data[0]
     target_uid = m["user_id"]
+    # 多級方案：金額 ±10% 容錯，找最高符合的 tier
+    matched = _match_tier(amount)
+    if not matched:
+        # 金額不足：標記未通過 + 通知用戶
+        try:
+            sb().table("members").update({"gw_status": "rejected"}) \
+                .eq("user_id", target_uid).eq("tenant_id", TENANT_ID).execute()
+        except Exception as e:
+            print(f"[GW] 更新 rejected 失敗: {e}", flush=True)
+        try:
+            push_text(target_uid,
+                f"❌ 儲值金額不足\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"本次儲值 {amount:,} 點，未達最低門檻\n\n"
+                f"{GW_TIERS_TEXT}\n\n"
+                f"請補足金額後再次輸入「確認儲值」")
+        except Exception:
+            pass
+        lines = [f"⚠️ {account} 金額不足（{amount:,} 點），已標記未通過並通知用戶"]
+        lines.append(GW_TIERS_TEXT)
+        return "\n".join(lines)
+    _matched_amount, hours = matched
     exp = m.get("expire_at")
     now = datetime.now(timezone.utc)
     base = max(datetime.fromisoformat(exp.replace("Z", "+00:00")), now) if exp else now
