@@ -2161,6 +2161,8 @@ def handle_message(event):
             "→ 升級為正式會員（永久）\n\n"
             "延長 <user_id或REF碼> <天數或小時>\n"
             "→ 例如：延長 REF-XXXX 7天 / 3h\n\n"
+            "重置 REF-XXXX\n"
+            "→ 刪除用戶恢復全新狀態\n\n"
             "管理員指令\n"
             "→ 顯示本列表\n\n"
             "維護開 / 維護關\n"
@@ -2178,7 +2180,16 @@ def handle_message(event):
             "設推廣碼 REF-XXXX BOSS888\n"
             "→ 幫代理設自訂推廣碼\n\n"
             "設贈送 REF-XXXX 24h\n"
-            "→ 設定代理碼贈送時間（h/天）"
+            "→ 設定代理碼贈送時間（h/天）\n\n"
+            "━━ 兌換碼系統 ━━\n\n"
+            "建兌換碼 <碼名> <有效時間> [兌換時數] [綁定代理]\n"
+            "→ 例：建兌換碼 EYE508 24h 1 ADMIN\n"
+            "→ 第4參數可填 agent_code 或 custom_ref_code\n"
+            "→ 沒推廣碼的用戶兌換時自動綁到該代理\n\n"
+            "兌換碼狀態\n"
+            "→ 列出所有兌換碼+使用人數+綁定代理\n\n"
+            "兌換碼明細 <碼名>\n"
+            "→ 查看該碼的兌換用戶清單"
         ); return
     if text == "維護開":
         if not is_admin(user_id):
