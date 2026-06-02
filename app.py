@@ -2761,15 +2761,20 @@ PROCESSING_TIMEOUT_SEC   = 5 * 60   # 指令 processing > 5 分鐘 → daemon cr
 ALERT_THROTTLE_SEC       = 60 * 60  # auto_stale 失敗通知 1 小時降頻
 
 def _get_admin_user_ids() -> list:
-    """所有 is_admin=true 的 agent.agent_id（LINE user_id 開頭 'U' 才算）"""
-    try:
-        r = (sb().table("agents").select("agent_id")
-             .eq("tenant_id", TENANT_ID).eq("is_admin", True)
-             .execute().data or [])
-        return [a["agent_id"] for a in r if a.get("agent_id","").startswith("U")]
-    except Exception as e:
-        print(f"[Admins] 查 admin 失敗: {e}", flush=True)
-        return []
+    """跟 is_admin() 完全一致：ADMIN_USER_ID + ADMIN_REF_CODE 解析出的 user_id"""
+    uids = set()
+    if ADMIN_USER_ID:
+        uids.add(ADMIN_USER_ID)
+    if ADMIN_REF_CODE:
+        try:
+            codes = [c.strip().upper() for c in ADMIN_REF_CODE.split(",") if c.strip()]
+            r = (sb().table("members").select("user_id")
+                 .in_("referral_code", codes).eq("tenant_id", TENANT_ID).execute().data or [])
+            for row in r:
+                uids.add(row["user_id"])
+        except Exception as e:
+            print(f"[Admins] 查 admin 失敗: {e}", flush=True)
+    return list(uids)
 
 def _push_admins(text: str):
     for uid in _get_admin_user_ids():
