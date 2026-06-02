@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS crawler_commands (
   issued_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   status        TEXT NOT NULL DEFAULT 'pending', -- pending / processing / done / failed
   result        TEXT,                            -- 處理結果文字（成功或錯誤訊息）
-  processed_at  TIMESTAMPTZ
+  processed_at  TIMESTAMPTZ,
+  notified_at   TIMESTAMPTZ                       -- LINE Bot 端 push 通知後寫入，防重複
 );
 
 CREATE INDEX IF NOT EXISTS idx_crawler_commands_pending

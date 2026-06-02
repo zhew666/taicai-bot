@@ -1252,7 +1252,7 @@ def cmd_admin_restart_crawler(user_id, token, text):
             f"━━━━━━━━━━━━━━\n"
             f"指令編號：#{cmd_id}\n"
             f"VPS 約 15 秒內處理\n"
-            f"完成後會通知 TG 群")
+            f"完成後 LINE 通知你")
     except Exception as e:
         reply_text(token, f"❌ 發送失敗：{e}")
 
@@ -2593,11 +2593,19 @@ def poll_loop():
         # 數據新鮮度監控
         _check_data_freshness(latest_hands)
 
-        # 試用到期警告 + 記憶體清理：每 60 秒
+        # 試用到期警告 + 爬蟲指令回報 + 記憶體清理：每 60 秒
         now_ts = time.time()
         if now_ts - _last_trial_check >= 60:
             _last_trial_check = now_ts
             _poll_trial_warnings()
+            try:
+                _poll_crawler_commands()
+            except Exception as e:
+                print(f"[Poll] _poll_crawler_commands 崩潰: {e}", flush=True)
+            try:
+                _poll_stale_crawlers()
+            except Exception as e:
+                print(f"[Poll] _poll_stale_crawlers 崩潰: {e}", flush=True)
             # 清理過期的記憶體狀態
             for d in (_cooldown, _pending_extend, _pending_bind, _pending_follow):
                 stale = [k for k, v in d.items()
@@ -2743,6 +2751,215 @@ def _poll_airdrop(latest_hands: dict):
                     push_text(user_id, "\n".join(lines))
         except Exception as e:
             print(f"[Airdrop Error] {user_id}: {e}", flush=True)
+
+# ── 爬蟲守護網（4 道防線）─────────────────────────────────────
+_BOT_START_TS = datetime.now(timezone.utc).isoformat()
+STALE_THRESHOLD_SEC      = 5 * 60   # 平台 5 分鐘沒新資料 → 視為 stale
+AUTO_COOLDOWN_SEC        = 10 * 60  # 同平台冷卻期，避免重複觸發
+PENDING_TIMEOUT_SEC      = 5 * 60   # 指令 pending > 5 分鐘 → daemon 沒回應
+PROCESSING_TIMEOUT_SEC   = 5 * 60   # 指令 processing > 5 分鐘 → daemon crash
+ALERT_THROTTLE_SEC       = 60 * 60  # auto_stale 失敗通知 1 小時降頻
+
+def _get_admin_user_ids() -> list:
+    """所有 is_admin=true 的 agent.agent_id（LINE user_id 開頭 'U' 才算）"""
+    try:
+        r = (sb().table("agents").select("agent_id")
+             .eq("tenant_id", TENANT_ID).eq("is_admin", True)
+             .execute().data or [])
+        return [a["agent_id"] for a in r if a.get("agent_id","").startswith("U")]
+    except Exception as e:
+        print(f"[Admins] 查 admin 失敗: {e}", flush=True)
+        return []
+
+def _push_admins(text: str):
+    for uid in _get_admin_user_ids():
+        try:
+            push_text(uid, text)
+        except Exception as e:
+            print(f"[PushAdmin] {uid[:15]}: {e}", flush=True)
+
+def _cmd_label(command: str) -> str:
+    return {
+        "mt_restart":"MT", "dg_restart":"DG", "all_restart":"MT+DG",
+        "mt_dup_cleanup":"MT 雙開清理", "dg_dup_cleanup":"DG 雙開清理",
+    }.get(command, command)
+
+def _is_recent_auto_stale_alert_sent(command: str) -> bool:
+    """同 command + auto_stale + 最近 1 小時內已 notified 過任何訊息 → 跳過"""
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=ALERT_THROTTLE_SEC)).isoformat()
+        r = (sb().table("crawler_commands").select("id")
+             .eq("tenant_id", TENANT_ID)
+             .eq("command", command)
+             .eq("issued_by", "auto_stale")
+             .gte("notified_at", cutoff)
+             .limit(1).execute().data or [])
+        return bool(r)
+    except Exception as e:
+        print(f"[Throttle] 查降頻紀錄失敗: {e}", flush=True)
+        return False  # 失敗時寧可推也不要漏
+
+def _mark_notified(cmd_id: int):
+    try:
+        sb().table("crawler_commands").update({
+            "notified_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", cmd_id).execute()
+    except Exception as e:
+        print(f"[CrawlerCmd] notified_at 更新失敗 #{cmd_id}: {e}", flush=True)
+
+def _poll_crawler_commands():
+    """第 2/3 道：pending/processing 超時。第 1 道完成通知。雙開通知。"""
+    now = datetime.now(timezone.utc)
+    # ─ 第 2 道：pending 超時（daemon 死了）
+    try:
+        cutoff = (now - timedelta(seconds=PENDING_TIMEOUT_SEC)).isoformat()
+        stale_pending = (sb().table("crawler_commands").select("*")
+                         .eq("tenant_id", TENANT_ID).eq("status", "pending")
+                         .lt("issued_at", cutoff).limit(20).execute().data or [])
+        for row in stale_pending:
+            try:
+                sb().table("crawler_commands").update({
+                    "status": "failed",
+                    "result": "daemon 沒回應，可能 VPS 沒在跑或網路斷",
+                    "processed_at": now.isoformat(),
+                }).eq("id", row["id"]).eq("status", "pending").execute()
+            except Exception as e:
+                print(f"[PendingTimeout] 更新 #{row['id']} 失敗: {e}", flush=True)
+    except Exception as e:
+        print(f"[PendingTimeout Poll] {e}", flush=True)
+
+    # ─ 第 3 道：processing 超時（daemon crash）
+    try:
+        cutoff = (now - timedelta(seconds=PROCESSING_TIMEOUT_SEC)).isoformat()
+        stale_proc = (sb().table("crawler_commands").select("*")
+                      .eq("tenant_id", TENANT_ID).eq("status", "processing")
+                      .lt("issued_at", cutoff).limit(20).execute().data or [])
+        for row in stale_proc:
+            try:
+                sb().table("crawler_commands").update({
+                    "status": "failed",
+                    "result": "daemon 拿單後沒回報，可能 crash",
+                    "processed_at": now.isoformat(),
+                }).eq("id", row["id"]).eq("status", "processing").execute()
+            except Exception as e:
+                print(f"[ProcTimeout] 更新 #{row['id']} 失敗: {e}", flush=True)
+    except Exception as e:
+        print(f"[ProcTimeout Poll] {e}", flush=True)
+
+    # ─ 完成 / 失敗通知（含降頻）
+    try:
+        rows = (sb().table("crawler_commands").select("*")
+                .eq("tenant_id", TENANT_ID)
+                .in_("status", ["done", "failed"])
+                .is_("notified_at", "null")
+                .gte("processed_at", _BOT_START_TS)
+                .order("processed_at").limit(30).execute().data or [])
+        for row in rows:
+            cmd_id = row["id"]
+            issued_by = row.get("issued_by") or ""
+            status = row["status"]
+            command = row["command"]
+            cmd_lbl = _cmd_label(command)
+            result = (row.get("result") or "")[:200]
+
+            # 雙開清理：每次都推給所有 admin
+            if issued_by == "dup_detector":
+                icon = "⚠️" if status == "done" else "❌"
+                _push_admins(
+                    f"{icon} 爬蟲雙開保護\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"指令編號：#{cmd_id}\n"
+                    f"類型：{cmd_lbl}\n"
+                    f"結果：{result or '已清理重啟'}")
+                _mark_notified(cmd_id); continue
+
+            # 自動 stale：每平台 + done/failed 降頻
+            if issued_by == "auto_stale":
+                # done 永遠推（恢復通知）；failed 受降頻
+                if status == "failed" and _is_recent_auto_stale_alert_sent(command):
+                    _mark_notified(cmd_id)  # 標記已處理但不 push
+                    continue
+                if status == "done":
+                    _push_admins(
+                        f"✅ 自動修復成功\n"
+                        f"━━━━━━━━━━━━━━\n"
+                        f"指令編號：#{cmd_id}\n"
+                        f"類型：{cmd_lbl}\n"
+                        f"{cmd_lbl} 已恢復正常運作")
+                else:
+                    _push_admins(
+                        f"❌ 自動修復暫時失敗\n"
+                        f"━━━━━━━━━━━━━━\n"
+                        f"指令編號：#{cmd_id}\n"
+                        f"類型：{cmd_lbl}\n"
+                        f"原因：{result or '未提供'}\n\n"
+                        f"系統會繼續嘗試，若為平台維護請等候")
+                _mark_notified(cmd_id); continue
+
+            # 人工指令：每次都推給下指令的人
+            if issued_by.startswith("U"):
+                icon = "✅" if status == "done" else "❌"
+                try:
+                    push_text(issued_by,
+                        f"{icon} 爬蟲重啟回報\n"
+                        f"━━━━━━━━━━━━━━\n"
+                        f"指令編號：#{cmd_id}\n"
+                        f"類型：{cmd_lbl}\n"
+                        f"結果：{result or ('處理成功' if status=='done' else '未提供錯誤訊息')}")
+                except Exception as e:
+                    print(f"[Manual] push #{cmd_id} 失敗: {e}", flush=True)
+                _mark_notified(cmd_id); continue
+
+            # 其他來源（未知）— 標記不再處理
+            _mark_notified(cmd_id)
+    except Exception as e:
+        print(f"[CrawlerCmd Poll] {e}", flush=True)
+
+def _poll_stale_crawlers():
+    """第 1 道：偵測 MT/DG 是否 stale，自動寫入重啟指令"""
+    now = datetime.now(timezone.utc)
+    stale_cutoff = (now - timedelta(seconds=STALE_THRESHOLD_SEC)).isoformat()
+    cooldown_cutoff = (now - timedelta(seconds=AUTO_COOLDOWN_SEC)).isoformat()
+    for platform, command in (("MT", "mt_restart"), ("DG", "dg_restart")):
+        try:
+            # 查該平台最新 updated_at
+            r = (sb().table("live_tables").select("updated_at")
+                 .eq("platform", platform)
+                 .order("updated_at", desc=True).limit(1).execute().data or [])
+            if not r:
+                continue
+            latest = r[0]["updated_at"]
+            if latest >= stale_cutoff:
+                continue  # 還新鮮
+            # 冷卻檢查：最近 10 分鐘內是否已下過此平台指令
+            recent = (sb().table("crawler_commands").select("id")
+                      .eq("tenant_id", TENANT_ID).eq("command", command)
+                      .gte("issued_at", cooldown_cutoff).limit(1).execute().data or [])
+            if recent:
+                continue  # 冷卻中
+            # 寫指令
+            ins = sb().table("crawler_commands").insert({
+                "tenant_id": TENANT_ID,
+                "command": command,
+                "issued_by": "auto_stale",
+            }).execute()
+            new_id = ins.data[0]["id"] if ins.data else "?"
+            # 第一次通知（降頻檢查）
+            if not _is_recent_auto_stale_alert_sent(command):
+                _push_admins(
+                    f"🤖 自動偵測 {platform} 停滯\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"指令編號：#{new_id}\n"
+                    f"{platform} 平台超過 5 分鐘無新資料\n"
+                    f"已自動觸發重啟，daemon 處理中")
+                try:
+                    sb().table("crawler_commands").update({
+                        "notified_at": now.isoformat(),
+                    }).eq("id", new_id).execute()
+                except Exception: pass
+            print(f"[StalePoll] 觸發 {command} #{new_id}", flush=True)
+        except Exception as e:
+            print(f"[StalePoll {platform}] {e}", flush=True)
 
 def _poll_trial_warnings():
     now = datetime.now(timezone.utc)
