@@ -1214,6 +1214,71 @@ def cmd_admin_reset_member(user_id, token, text):
     except Exception as e:
         reply_text(token, f"❌ 重置失敗：{e}")
 
+# ── 爬蟲遠端重啟（寫指令到 crawler_commands，VPS daemon 拉取執行）─────
+_RESTART_CMD_MAP = {
+    "MT重啟": "mt_restart", "mt重啟": "mt_restart", "Mt重啟": "mt_restart",
+    "DG重啟": "dg_restart", "dg重啟": "dg_restart", "Dg重啟": "dg_restart",
+    "爬蟲重啟": "all_restart", "全部重啟": "all_restart",
+}
+
+def cmd_admin_restart_crawler(user_id, token, text):
+    """MT重啟 / DG重啟 / 爬蟲重啟（all）— 寫指令到 DB，VPS daemon 處理"""
+    text = text.strip()
+    command = _RESTART_CMD_MAP.get(text)
+    if not command:
+        reply_text(token, "格式：MT重啟 / DG重啟 / 爬蟲重啟"); return
+    try:
+        # 檢查 60 秒內是否有同樣 pending 指令，避免重複
+        recent_cutoff = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+        existing = (sb().table("crawler_commands").select("id,status,issued_at")
+                    .eq("tenant_id", TENANT_ID).eq("command", command)
+                    .gte("issued_at", recent_cutoff)
+                    .in_("status", ["pending", "processing"])
+                    .limit(1).execute())
+        if existing.data:
+            reply_text(token,
+                f"⏳ {text} 指令已在處理中\n"
+                f"請等待現有指令完成再下新指令")
+            return
+        # 寫入指令
+        r = sb().table("crawler_commands").insert({
+            "tenant_id": TENANT_ID,
+            "command": command,
+            "issued_by": user_id,
+        }).execute()
+        cmd_id = r.data[0]["id"] if r.data else "?"
+        reply_text(token,
+            f"✅ {text} 指令已發送\n"
+            f"━━━━━━━━━━━━━━\n"
+            f"指令編號：#{cmd_id}\n"
+            f"VPS 約 15 秒內處理\n"
+            f"完成後會通知 TG 群")
+    except Exception as e:
+        reply_text(token, f"❌ 發送失敗：{e}")
+
+def cmd_admin_crawler_status(user_id, token):
+    """爬蟲狀態 — 查最近 5 筆重啟指令的處理狀態"""
+    try:
+        r = (sb().table("crawler_commands").select("*")
+             .eq("tenant_id", TENANT_ID)
+             .order("issued_at", desc=True).limit(5).execute())
+        rows = r.data or []
+        if not rows:
+            reply_text(token, "目前沒有任何爬蟲指令紀錄"); return
+        icons = {"pending":"⏳","processing":"🔄","done":"✅","failed":"❌"}
+        lines = ["🛠 爬蟲指令最近 5 筆\n━━━━━━━━━━━━━━"]
+        for row in rows:
+            iss = datetime.fromisoformat(row["issued_at"].replace("Z","+00:00"))
+            iss_tw = iss.astimezone(timezone(timedelta(hours=8))).strftime("%m/%d %H:%M:%S")
+            icon = icons.get(row["status"], "❓")
+            line = f"\n#{row['id']} {icon} {row['command']}\n  發起：{iss_tw}"
+            if row.get("result"):
+                line += f"\n  結果：{row['result'][:60]}"
+            lines.append(line)
+        reply_text(token, "\n".join(lines))
+    except Exception as e:
+        reply_text(token, f"❌ 查詢失敗：{e}")
+
 # ── 兌換碼系統 ──────────────────────────────────────────────
 def cmd_admin_create_redeem(user_id, token, text):
     """建兌換碼 <碼名> <有效時間> [兌換時數] [綁定代理]
@@ -2163,6 +2228,11 @@ def handle_message(event):
             "→ 例如：延長 REF-XXXX 7天 / 3h\n\n"
             "重置 REF-XXXX\n"
             "→ 刪除用戶恢復全新狀態\n\n"
+            "━━ 爬蟲遠端控制 ━━\n\n"
+            "MT重啟 / DG重啟 / 爬蟲重啟\n"
+            "→ 通知 VPS 重啟對應爬蟲\n\n"
+            "爬蟲狀態\n"
+            "→ 查最近 5 筆重啟指令處理狀態\n\n"
             "管理員指令\n"
             "→ 顯示本列表\n\n"
             "維護開 / 維護關\n"
@@ -2298,6 +2368,14 @@ def handle_message(event):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
         cmd_admin_reset_member(user_id, token, text); return
+    if text in _RESTART_CMD_MAP:
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_restart_crawler(user_id, token, text); return
+    if text == "爬蟲狀態":
+        if not is_admin(user_id):
+            reply_text(token, "❌ 無權限"); return
+        cmd_admin_crawler_status(user_id, token); return
     if text.startswith("建兌換碼") or text.startswith("建兑换码"):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
