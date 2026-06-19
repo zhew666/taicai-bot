@@ -2687,12 +2687,21 @@ def _poll_airdrop(latest_hands: dict):
               f"{_poll_stats['airdrop_triggers']} 次觸發, "
               f"監控用戶: {len(users)}, 上次觸發: {last}", flush=True)
     # 查 positive_ev View，取全部正 EV 桌（按平台分組給各用戶）
+    # 過濾「殭屍訊號」：必須在 latest_hands 中且 35 秒內仍有更新，避免桌停了還推舊 EV
+    fresh_cutoff = (now - timedelta(seconds=35)).isoformat()
+    def _is_fresh(tid: str) -> bool:
+        row = latest_hands.get(tid)
+        return bool(row and (row.get("updated_at") or "") >= fresh_cutoff)
     try:
         pos_rows = sb().table("positive_ev").select("*").execute().data
         pos_hands_mt = {row["table_id"]: row for row in pos_rows
-                        if row.get("platform") == "MT" and row["table_id"] != "TEST01"}
+                        if row.get("platform") == "MT"
+                        and row["table_id"] != "TEST01"
+                        and _is_fresh(row["table_id"])}
         pos_hands_dg = {row["table_id"]: row for row in pos_rows
-                        if row.get("platform") == "DG" and not _hide_sexy(row["table_id"])}
+                        if row.get("platform") == "DG"
+                        and not _hide_sexy(row["table_id"])
+                        and _is_fresh(row["table_id"])}
     except Exception as e:
         print(f"[Airdrop] 查 positive_ev 失敗: {e}", flush=True)
         pos_hands_mt, pos_hands_dg = {}, {}
