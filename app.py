@@ -96,7 +96,10 @@ def _match_tier(amount: int):
         if amount >= a * 0.9:
             matched = (a, h)
     return matched
-ALL_TABLES_MT = [f"BAG{i:02d}" for i in range(1, 18)] + ["BAG03A", "BAG13A", "TEST01"]
+# 2026-09-19 MT 改版：台灣桌 BAG 全下架，改為 BAV 9 桌（跳 4、含 03A）。白名單制，不用 range。
+MT_TABLES = ["BAV01", "BAV02", "BAV03", "BAV03A", "BAV05", "BAV06", "BAV07", "BAV08", "BAV09"]
+MT_TABLE_SET = set(MT_TABLES)
+ALL_TABLES_MT = MT_TABLES + ["TEST01"]
 
 # DG 標準桌映射：01~07 → DGR1~DGR7
 DG_STD_MAP  = {f"DGR{i}": f"{i:02d}" for i in range(1, 8)}
@@ -259,7 +262,7 @@ def tnum(table_id: str) -> str:
     if table_id.startswith("DGS"):
         _refresh_dg_sexy()
         return _dg_sexy_cache["fwd"].get(table_id, table_id)  # DGS348→S01
-    return table_id.replace("BAG", "").lstrip("0") or table_id
+    return table_id.replace("BAV", "").replace("BAG", "").lstrip("0") or table_id
 
 _CN_NUM = {"一":1,"二":2,"三":3,"四":4,"五":5,"六":6,"七":7,
             "八":8,"九":9,"十":10,"十一":11,"十二":12,"十三":13}
@@ -293,25 +296,20 @@ def normalize_table(text: str, platform: str = "MT"):
         if u.startswith("R"):
             return f"DG{u}"
         return None
-    # MT 模式
-    if t.upper() in ("3A", "03A"):
-        return "BAG03A"
-    if t.upper() in ("13A",):
-        return "BAG13A"
-    if t.upper() in ("TEST01", "TEST1", "TEST"):
+    # MT 模式（BAV 白名單制：跳 4，含 03A；不在名單一律 None）
+    u = t.upper()
+    if u in ("TEST01", "TEST1", "TEST"):
         return "TEST01"
-    if t.isdigit():
-        n = int(t)
-        if 1 <= n <= 17:
-            return f"BAG{n:02d}"
-        return None
-    # 中文數字
-    if t in _CN_NUM:
-        return f"BAG{_CN_NUM[t]:02d}"
-    t = t.upper()
-    if t.startswith("BAG"):
-        return t
-    return None
+    cand = None
+    if u.endswith("A") and u[:-1].isdigit():          # 3A / 03A → BAV03A
+        cand = f"BAV{int(u[:-1]):02d}A"
+    elif u.isdigit():                                  # 3 / 03 → BAV03
+        cand = f"BAV{int(u):02d}"
+    elif t in _CN_NUM:                                 # 三 → BAV03
+        cand = f"BAV{_CN_NUM[t]:02d}"
+    elif u.startswith("BAV"):                          # 直接輸入完整 ID
+        cand = u
+    return cand if cand in MT_TABLE_SET else None
 
 def push_text(user_id: str, text: str):
     for attempt in range(3):
@@ -620,8 +618,8 @@ def cmd_follow(user_id, token, text, member):
                 f"📡 DG（{len(valid_tables)} 桌在線）")
         else:
             reply_text(token,
-                "👁 請輸入廳號：1~17\n"
-                "📡 MT 17 廳")
+                "👁 請輸入廳號：1~9（含 3A）\n"
+                "📡 MT 9 廳")
         return
 
     # 已在跟隨同一廳 → 關閉
@@ -634,7 +632,7 @@ def cmd_follow(user_id, token, text, member):
         following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0,
                               "started_at": time.time()}
     # MT 桌附即時截圖（DG 暫無；截圖超過 3 分鐘未更新則略過）
-    if tid.startswith("BAG") and _screenshot_fresh(tid):
+    if tid.startswith("BAV") and _screenshot_fresh(tid):
         img_url = f"https://evpro-eye.com/api/screenshot/{tid}?t={int(time.time())}"
         reply_text_image(token, f"⏳ 正在連線第{tnum(tid)}廳...", img_url)
     else:
@@ -810,7 +808,7 @@ def cmd_intro(user_id, token, member):
     mtype = get_member_type(user_id, member)
     exp_info = get_expire_str(member)
     plat = get_user_platform(member)
-    plat_str = "DG" if plat == "DG" else "MT 17 廳"
+    plat_str = "DG" if plat == "DG" else "MT 9 廳"
     has_account = member.get("gw_account")
     is_paid = member.get("gw_status") == "verified" or member.get("is_member") is True
     is_expired = False
@@ -2065,7 +2063,7 @@ def cmd_feature_intro(user_id, token):
         f"{BRAND_NAME} ── 功能介紹\n"
         "━━━━━━━━━━━━━━\n\n"
         "即時監控兩大場館百家樂：\n"
-        "  MT 17 廳 ＋ DG 14 桌\n"
+        "  MT 9 廳 ＋ DG 14 桌\n"
         "8 副牌完整追蹤，計算 6 種注區預期收益：\n"
         "莊 / 閒 / 和 / 超級六 / 閒對 / 莊對\n\n"
         f"▸ {CMD_GUIDE}\n"
@@ -2323,7 +2321,7 @@ def handle_message(event):
             if _sexy_enabled():
                 desk_info += "\n性感桌：S01~S07"
             reply_text(token, f"✅ 已切換到 DG 平台\n目前 {dg_count} 桌在線\n\n{desk_info}\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 DG 數據"); return
-        reply_text(token, f"✅ 已切換到 MT 平台\n17 廳在線\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 MT 數據"); return
+        reply_text(token, f"✅ 已切換到 MT 平台\n9 廳在線\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 MT 數據"); return
     if text in ("切換DG", "切換dg", "切換Dg"):
         if not is_platform_enabled("DG") and not is_admin(user_id):
             reply_text(token, "🔒 DG 場館目前未開放"); return
@@ -2349,7 +2347,7 @@ def handle_message(event):
             following.pop(user_id, None)
         with airdrop_lock:
             airdrop.pop(user_id, None)
-        reply_text(token, f"✅ 已切換到 MT 平台\n17 廳在線\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 MT 數據"); return
+        reply_text(token, f"✅ 已切換到 MT 平台\n9 廳在線\n\n{CMD_FOLLOW}/{CMD_AIRDROP}/{CMD_GUIDE} 將使用 MT 數據"); return
     if text.startswith("查詢") or text.startswith("查询"):
         if not is_admin(user_id):
             reply_text(token, "❌ 無權限"); return
@@ -2474,8 +2472,8 @@ def handle_message(event):
         return
     if text in ("說明", "说明", "help", "指令", "Help", "HELP"):
         plat_now = get_user_platform(member)
-        plat_info = "DG 14 桌" if plat_now == "DG" else "MT 17 廳"
-        follow_hint = f"{CMD_FOLLOW} 01~07" if plat_now == "DG" else f"{CMD_FOLLOW} X廳（1~17）"
+        plat_info = "DG 14 桌" if plat_now == "DG" else "MT 9 廳"
+        follow_hint = f"{CMD_FOLLOW} 01~07" if plat_now == "DG" else f"{CMD_FOLLOW} X廳（1~9）"
         reply_text(token,
             f"🃏 {BRAND_NAME} 指令說明\n"
             f"📡 目前場館：{plat_info}（輸入「切換」可切換）\n"
