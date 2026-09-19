@@ -631,12 +631,8 @@ def cmd_follow(user_id, token, text, member):
     with follow_lock:
         following[user_id] = {"table_id": tid, "last_shoe": None, "last_hand": 0,
                               "started_at": time.time()}
-    # MT 桌附即時截圖（DG 暫無；截圖超過 3 分鐘未更新則略過）
-    if tid.startswith("BAV") and _screenshot_fresh(tid):
-        img_url = f"https://evpro-eye.com/api/screenshot/{tid}?t={int(time.time())}"
-        reply_text_image(token, f"⏳ 正在連線第{tnum(tid)}廳...", img_url)
-    else:
-        reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳...")
+    # 2026-09-19 MT 改版後截圖機制已移除（老闆決定），不再附圖、不再查 Storage
+    reply_text(token, f"⏳ 正在連線第{tnum(tid)}廳...")
 
 def cmd_airdrop(user_id, token, text, member):
     if not has_referral(member):
