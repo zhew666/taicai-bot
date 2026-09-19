@@ -2602,6 +2602,10 @@ def poll_loop():
                 _poll_stale_crawlers()
             except Exception as e:
                 print(f"[Poll] _poll_stale_crawlers 崩潰: {e}", flush=True)
+            try:
+                _poll_mt_table_drift()
+            except Exception as e:
+                print(f"[Poll] _poll_mt_table_drift 崩潰: {e}", flush=True)
             # 清理過期的記憶體狀態
             for d in (_cooldown, _pending_extend, _pending_bind, _pending_follow):
                 stale = [k for k, v in d.items()
@@ -2924,6 +2928,52 @@ def _poll_crawler_commands():
             _mark_notified(cmd_id)
     except Exception as e:
         print(f"[CrawlerCmd Poll] {e}", flush=True)
+
+# ── MT 桌清單 drift 偵測（2026-09-19 改版後掛上，常駐）────────────────
+# 每 10 分鐘比對 live_tables 實際活躍 MT 桌 vs MT_TABLES 白名單，
+# 出現白名單外的新桌 / 白名單桌消失 → LINE 通知管理員。同一組差異 6 小時內只報一次。
+DRIFT_CHECK_SEC       = 10 * 60
+DRIFT_NEW_FRESH_SEC   = 10 * 60   # 新桌：10 分鐘內有更新才算「出現」
+DRIFT_MISSING_SEC     = 30 * 60   # 白名單桌：30 分鐘沒更新才算「消失」（換靴/暫停不誤報）
+DRIFT_RENOTIFY_SEC    = 6 * 3600
+_drift_state = {"last_check": 0.0, "last_sig": None, "last_notified": 0.0}
+
+def _poll_mt_table_drift():
+    now_ts = time.time()
+    if now_ts - _drift_state["last_check"] < DRIFT_CHECK_SEC:
+        return
+    _drift_state["last_check"] = now_ts
+    try:
+        now = datetime.now(timezone.utc)
+        cut_new = (now - timedelta(seconds=DRIFT_NEW_FRESH_SEC)).isoformat()
+        cut_miss = (now - timedelta(seconds=DRIFT_MISSING_SEC)).isoformat()
+        rows = (sb().table("live_tables").select("table_id,updated_at")
+                .eq("platform", "MT").gte("updated_at", cut_miss).execute().data or [])
+        fresh_new  = {r["table_id"] for r in rows if (r.get("updated_at") or "") >= cut_new}
+        fresh_miss = {r["table_id"] for r in rows}
+        if not fresh_new:
+            return  # 爬蟲沒在跑（整體 stale），不算 drift，交給 stale 防線
+        new_tables = sorted(t for t in fresh_new if t not in MT_TABLE_SET and t != "TEST01")
+        missing    = sorted(t for t in MT_TABLE_SET if t not in fresh_miss)
+        if not new_tables and not missing:
+            _drift_state["last_sig"] = None
+            return
+        sig = (tuple(new_tables), tuple(missing))
+        if sig == _drift_state["last_sig"] and now_ts - _drift_state["last_notified"] < DRIFT_RENOTIFY_SEC:
+            return
+        lines = ["📋 MT 桌清單變動", "━━━━━━━━━━━━━━"]
+        if new_tables:
+            lines.append(f"🆕 新出現（不在白名單）：{', '.join(new_tables)}")
+        if missing:
+            lines.append(f"⚠️ 消失（白名單桌 >30 分鐘無更新）：{', '.join(missing)}")
+        lines.append(f"目前活躍：{len(fresh_new)} 桌")
+        lines.append("\n要調整白名單請告訴 Claude")
+        _push_admins("\n".join(lines))
+        _drift_state["last_sig"] = sig
+        _drift_state["last_notified"] = now_ts
+        print(f"[MT Drift] new={new_tables} missing={missing}", flush=True)
+    except Exception as e:
+        print(f"[MT Drift] {e}", flush=True)
 
 def _poll_stale_crawlers():
     """第 1 道：偵測 MT/DG 是否 stale，自動寫入重啟指令"""
