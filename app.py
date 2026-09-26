@@ -2975,49 +2975,48 @@ def _poll_mt_table_drift():
     except Exception as e:
         print(f"[MT Drift] {e}", flush=True)
 
+# 2026-09-26：Render 端只偵測、只通知，不再寫重啟指令。
+# 原因：VPS health_monitor + watchdog + auto_spawn 已負責重新登入，Render 再寫 auto_stale
+# 會形成三層疊加，9/23~26 連打登入兩天半觸發平台 429。重新登入只能有一層負責。
+STALE_NOTIFY_THROTTLE_SEC = 60 * 60
+_stale_notify_state = {}  # platform → {"last_notified": ts, "stale_since": iso}
+
 def _poll_stale_crawlers():
-    """第 1 道：偵測 MT/DG 是否 stale，自動寫入重啟指令"""
+    """第 1 道（通知版）：MT/DG 超過 5 分鐘無新資料 → LINE 通知管理員，1 小時最多 1 則；恢復時通知一次"""
     now = datetime.now(timezone.utc)
+    now_ts = time.time()
     stale_cutoff = (now - timedelta(seconds=STALE_THRESHOLD_SEC)).isoformat()
-    cooldown_cutoff = (now - timedelta(seconds=AUTO_COOLDOWN_SEC)).isoformat()
-    for platform, command in (("MT", "mt_restart"), ("DG", "dg_restart")):
+    for platform in ("MT", "DG"):
         try:
-            # 查該平台最新 updated_at
             r = (sb().table("live_tables").select("updated_at")
                  .eq("platform", platform)
                  .order("updated_at", desc=True).limit(1).execute().data or [])
             if not r:
                 continue
             latest = r[0]["updated_at"]
+            st = _stale_notify_state.setdefault(platform, {"last_notified": 0.0, "stale_since": None})
             if latest >= stale_cutoff:
-                continue  # 還新鮮
-            # 冷卻檢查：最近 10 分鐘內是否已下過此平台指令
-            recent = (sb().table("crawler_commands").select("id")
-                      .eq("tenant_id", TENANT_ID).eq("command", command)
-                      .gte("issued_at", cooldown_cutoff).limit(1).execute().data or [])
-            if recent:
-                continue  # 冷卻中
-            # 寫指令
-            ins = sb().table("crawler_commands").insert({
-                "tenant_id": TENANT_ID,
-                "command": command,
-                "issued_by": "auto_stale",
-            }).execute()
-            new_id = ins.data[0]["id"] if ins.data else "?"
-            # 第一次通知（降頻檢查）
-            if not _is_recent_auto_stale_alert_sent(command):
-                _push_admins(
-                    f"🤖 自動偵測 {platform} 停滯\n"
-                    f"━━━━━━━━━━━━━━\n"
-                    f"指令編號：#{new_id}\n"
-                    f"{platform} 平台超過 5 分鐘無新資料\n"
-                    f"已自動觸發重啟，daemon 處理中")
-                try:
-                    sb().table("crawler_commands").update({
-                        "notified_at": now.isoformat(),
-                    }).eq("id", new_id).execute()
-                except Exception: pass
-            print(f"[StalePoll] 觸發 {command} #{new_id}", flush=True)
+                if st["stale_since"]:
+                    _push_admins(f"✅ {platform} 數據已恢復\n最新更新：{latest[11:19]} UTC")
+                    print(f"[StalePoll] {platform} 恢復", flush=True)
+                st["stale_since"] = None
+                continue
+            if not st["stale_since"]:
+                st["stale_since"] = latest
+            if now_ts - st["last_notified"] < STALE_NOTIFY_THROTTLE_SEC:
+                continue
+            try:
+                age_min = int((now - datetime.fromisoformat(latest.replace("Z", "+00:00"))).total_seconds() / 60)
+            except Exception:
+                age_min = -1
+            _push_admins(
+                f"⚠️ {platform} 數據停滯\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"已 {age_min} 分鐘無新資料\n"
+                f"重新登入由 VPS 負責，Render 端不自動重啟\n"
+                f"需要時可手動下「{platform}重啟」")
+            st["last_notified"] = now_ts
+            print(f"[StalePoll] {platform} stale {age_min}min，已通知", flush=True)
         except Exception as e:
             print(f"[StalePoll {platform}] {e}", flush=True)
 
